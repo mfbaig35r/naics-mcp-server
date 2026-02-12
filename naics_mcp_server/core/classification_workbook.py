@@ -364,7 +364,10 @@ class ClassificationWorkbook:
         """
         try:
             result = self.database.connection.execute("""
-                SELECT * FROM classification_workbook
+                SELECT entry_id, form_type, label, content, metadata,
+                       created_at, session_id, parent_entry_id, tags,
+                       search_text, confidence_score
+                FROM classification_workbook
                 WHERE entry_id = ?
             """, [entry_id]).fetchone()
 
@@ -423,7 +426,10 @@ class ClassificationWorkbook:
 
         try:
             results = self.database.connection.execute(f"""
-                SELECT * FROM classification_workbook
+                SELECT entry_id, form_type, label, content, metadata,
+                       created_at, session_id, parent_entry_id, tags,
+                       search_text, confidence_score
+                FROM classification_workbook
                 WHERE {where_clause}
                 ORDER BY created_at DESC
                 LIMIT ?

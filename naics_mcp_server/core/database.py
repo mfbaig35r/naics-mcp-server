@@ -81,11 +81,12 @@ CREATE TABLE IF NOT EXISTS classification_workbook (
     label VARCHAR NOT NULL,
     content JSON NOT NULL,
     metadata JSON,
+    created_at TIMESTAMP NOT NULL,
     session_id VARCHAR,
     parent_entry_id VARCHAR,
     tags JSON,
-    confidence_score FLOAT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    search_text TEXT,
+    confidence_score FLOAT
 );
 
 -- Indexes for performance

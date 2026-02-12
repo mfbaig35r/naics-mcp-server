@@ -240,7 +240,7 @@ class ClassificationWorkbook:
         self._initialize_table()
 
     def _initialize_table(self) -> None:
-        """Create the workbook table if it doesn't exist."""
+        """Create the workbook table if it doesn't exist, and migrate if needed."""
         try:
             self.database.connection.execute("""
                 CREATE TABLE IF NOT EXISTS classification_workbook (
@@ -257,6 +257,19 @@ class ClassificationWorkbook:
                     confidence_score FLOAT
                 )
             """)
+
+            # Migration: Add search_text column if missing (for existing databases)
+            columns = self.database.connection.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'classification_workbook'"
+            ).fetchall()
+            column_names = [c[0] for c in columns]
+
+            if 'search_text' not in column_names:
+                logger.info("Migrating classification_workbook: adding search_text column")
+                self.database.connection.execute(
+                    "ALTER TABLE classification_workbook ADD COLUMN search_text TEXT"
+                )
+
             logger.info("Classification workbook table initialized")
         except Exception as e:
             logger.debug(f"Table initialization note: {e}")

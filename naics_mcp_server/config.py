@@ -69,25 +69,34 @@ class SearchConfig:
                 self.database_path = Path(env_path)
                 logger.info(f"Using database from environment: {self.database_path}")
             else:
-                # Try to use bundled database
+                # Try to find the database in standard locations
                 try:
                     import naics_mcp_server
                     package_dir = Path(naics_mcp_server.__file__).parent
-                    bundled_path = package_dir / "data" / "naics.duckdb"
+                    # Project root is one level up from the package directory
+                    project_root = package_dir.parent
 
-                    if bundled_path.exists():
+                    # Check locations in priority order:
+                    # 1. Project root data directory (for development)
+                    project_data_path = project_root / "data" / "naics.duckdb"
+                    # 2. Bundled inside package (for pip-installed distributions)
+                    bundled_path = package_dir / "data" / "naics.duckdb"
+                    # 3. Current working directory (for manual runs)
+                    cwd_path = Path.cwd() / "data" / "naics.duckdb"
+
+                    if project_data_path.exists():
+                        self.database_path = project_data_path
+                        logger.info(f"Using project database: {self.database_path}")
+                    elif bundled_path.exists():
                         self.database_path = bundled_path
                         logger.info(f"Using bundled database: {self.database_path}")
+                    elif cwd_path.exists():
+                        self.database_path = cwd_path
+                        logger.info(f"Using local database: {self.database_path}")
                     else:
-                        # Fall back to local data directory
-                        local_path = Path("data/naics.duckdb")
-                        if local_path.exists():
-                            self.database_path = local_path
-                            logger.info(f"Using local database: {self.database_path}")
-                        else:
-                            # Default path for new installations
-                            self.database_path = package_dir / "data" / "naics.duckdb"
-                            logger.info(f"Database will be created at: {self.database_path}")
+                        # Default: create in project data directory
+                        self.database_path = project_data_path
+                        logger.info(f"Database will be created at: {self.database_path}")
                 except ImportError:
                     # Package not properly installed, try local
                     self.database_path = Path("data/naics.duckdb")

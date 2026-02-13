@@ -3,6 +3,14 @@ Structured logging for NAICS MCP Server.
 
 Provides JSON-formatted logs with request context, performance metrics,
 and sensitive data handling for production deployments.
+
+Features:
+- JSON and text formatters for different environments
+- Request context tracking (request_id, session_id, correlation_id)
+- Sensitive data redaction (SSN, email, phone, secrets)
+- Service metadata (name, version, environment)
+- Exception logging with stack frame details
+- Rotating file handler support
 """
 
 import json
@@ -11,10 +19,11 @@ import os
 import re
 import sys
 import time
+import traceback
 import uuid
 from collections.abc import Callable
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -24,13 +33,33 @@ from typing import Any, TypeVar
 _request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
 _session_id: ContextVar[str | None] = ContextVar("session_id", default=None)
 _tool_name: ContextVar[str | None] = ContextVar("tool_name", default=None)
+_correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=None)
+
+# Service metadata (set at startup)
+_service_name: str = "naics-mcp-server"
+_service_version: str = "0.1.0"
+_environment: str = "development"
+
+# Sensitive data patterns for redaction
+REDACT_PATTERNS = [
+    r"\b\d{3}-\d{2}-\d{4}\b",  # SSN format
+    r"\b\d{9}\b",  # SSN without dashes
+    r"\b\d{10,16}\b",  # Long numbers (phone, credit card, account)
+    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",  # Email
+]
 
 
 # --- Configuration ---
 
 
 class LogConfig:
-    """Logging configuration from environment variables."""
+    """
+    Logging configuration from environment variables.
+
+    Note: For production, prefer using LoggingConfig from config.py which
+    provides Pydantic validation. This class is maintained for backwards
+    compatibility with setup_logging().
+    """
 
     def __init__(self):
         self.level = os.getenv("NAICS_LOG_LEVEL", "INFO").upper()
@@ -40,13 +69,14 @@ class LogConfig:
         self.retention_count = int(os.getenv("NAICS_LOG_RETENTION_COUNT", "5"))
         self.include_timestamp = os.getenv("NAICS_LOG_TIMESTAMP", "true").lower() == "true"
 
+        # Service metadata
+        self.service_name = os.getenv("NAICS_SERVICE_NAME", "naics-mcp-server")
+        self.environment = os.getenv("NAICS_ENVIRONMENT", "development")
+
         # Sensitive data handling
-        self.max_description_length = int(os.getenv("NAICS_LOG_MAX_DESC_LENGTH", "100"))
-        self.redact_patterns = [
-            r"\b\d{9}\b",  # SSN-like
-            r"\b\d{10,}\b",  # Long numbers (phone, account)
-            r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",  # Email
-        ]
+        self.max_message_length = int(os.getenv("NAICS_LOG_MAX_MSG_LENGTH", "1000"))
+        self.max_data_length = int(os.getenv("NAICS_LOG_MAX_DATA_LENGTH", "500"))
+        self.redact_patterns = REDACT_PATTERNS
 
 
 # Global config instance
@@ -57,12 +87,21 @@ _config = LogConfig()
 
 
 def set_request_context(
-    request_id: str | None = None, session_id: str | None = None, tool_name: str | None = None
+    request_id: str | None = None,
+    session_id: str | None = None,
+    tool_name: str | None = None,
+    correlation_id: str | None = None,
 ) -> None:
     """
     Set the current request context for logging.
 
     Call this at the start of each request/tool invocation.
+
+    Args:
+        request_id: Unique ID for this specific request
+        session_id: MCP session ID (if available)
+        tool_name: Name of the tool being invoked
+        correlation_id: ID for tracing across services (propagated from upstream)
     """
     if request_id:
         _request_id.set(request_id)
@@ -70,6 +109,8 @@ def set_request_context(
         _session_id.set(session_id)
     if tool_name:
         _tool_name.set(tool_name)
+    if correlation_id:
+        _correlation_id.set(correlation_id)
 
 
 def clear_request_context() -> None:
@@ -77,6 +118,7 @@ def clear_request_context() -> None:
     _request_id.set(None)
     _session_id.set(None)
     _tool_name.set(None)
+    _correlation_id.set(None)
 
 
 def get_request_context() -> dict[str, str | None]:
@@ -85,12 +127,35 @@ def get_request_context() -> dict[str, str | None]:
         "request_id": _request_id.get(),
         "session_id": _session_id.get(),
         "tool": _tool_name.get(),
+        "correlation_id": _correlation_id.get(),
     }
 
 
 def generate_request_id() -> str:
     """Generate a unique request ID."""
     return f"req_{uuid.uuid4().hex[:12]}"
+
+
+def generate_correlation_id() -> str:
+    """Generate a unique correlation ID for distributed tracing."""
+    return f"corr_{uuid.uuid4().hex[:16]}"
+
+
+def set_service_metadata(name: str, version: str, environment: str) -> None:
+    """
+    Set service metadata for log records.
+
+    Call this once at application startup.
+
+    Args:
+        name: Service name (e.g., "naics-mcp-server")
+        version: Service version (e.g., "0.1.0")
+        environment: Environment name (e.g., "production")
+    """
+    global _service_name, _service_version, _environment
+    _service_name = name
+    _service_version = version
+    _environment = environment
 
 
 # --- Sensitive Data Handling ---
@@ -110,11 +175,11 @@ def sanitize_text(text: str, max_length: int | None = None) -> str:
     if not text:
         return ""
 
-    max_len = max_length or _config.max_description_length
+    max_len = max_length or _config.max_data_length
 
     # Redact sensitive patterns
     sanitized = text
-    for pattern in _config.redact_patterns:
+    for pattern in REDACT_PATTERNS:
         sanitized = re.sub(pattern, "[REDACTED]", sanitized)
 
     # Truncate if needed
@@ -166,66 +231,165 @@ def sanitize_dict(data: dict[str, Any], sensitive_keys: set | None = None) -> di
 class JSONFormatter(logging.Formatter):
     """
     Formats log records as JSON for structured logging.
+
+    Produces logs compatible with ELK stack, Datadog, and other log aggregators.
+    Each log line is a single JSON object with consistent field names.
     """
 
-    def __init__(self, include_timestamp: bool = True):
+    def __init__(self, include_timestamp: bool = True, include_service_info: bool = True):
         super().__init__()
         self.include_timestamp = include_timestamp
+        self.include_service_info = include_service_info
 
     def format(self, record: logging.LogRecord) -> str:
-        log_data = {
+        # Core log fields
+        log_data: dict[str, Any] = {
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": self._truncate_message(record.getMessage()),
         }
 
+        # ISO 8601 timestamp with timezone
         if self.include_timestamp:
-            log_data["timestamp"] = datetime.utcnow().isoformat() + "Z"
+            log_data["timestamp"] = datetime.now(timezone.utc).isoformat()
 
-        # Add request context
+        # Service metadata for log aggregation
+        if self.include_service_info:
+            log_data["service"] = {
+                "name": _service_name,
+                "version": _service_version,
+                "environment": _environment,
+            }
+
+        # Request context for tracing
         context = get_request_context()
-        if any(v is not None for v in context.values()):
-            log_data["context"] = {k: v for k, v in context.items() if v is not None}
+        context_values = {k: v for k, v in context.items() if v is not None}
+        if context_values:
+            log_data["context"] = context_values
 
-        # Add extra data if present
+        # Structured data attached to log
         if hasattr(record, "data") and record.data:
-            log_data["data"] = record.data
+            log_data["data"] = self._sanitize_data(record.data)
 
-        # Add exception info if present
+        # Exception handling with stack frames
         if record.exc_info:
-            log_data["exception"] = self.formatException(record.exc_info)
+            log_data["error"] = self._format_exception(record.exc_info)
 
-        # Add source location for errors
-        if record.levelno >= logging.ERROR:
+        # Source location for warnings and errors
+        if record.levelno >= logging.WARNING:
             log_data["source"] = {
-                "file": record.pathname,
+                "file": self._shorten_path(record.pathname),
                 "line": record.lineno,
                 "function": record.funcName,
             }
 
-        return json.dumps(log_data, default=str)
+        return json.dumps(log_data, default=str, ensure_ascii=False)
+
+    def _truncate_message(self, message: str) -> str:
+        """Truncate message if too long."""
+        max_len = _config.max_message_length
+        if len(message) > max_len:
+            return message[:max_len] + "..."
+        return message
+
+    def _sanitize_data(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Sanitize data dictionary for logging."""
+        return sanitize_dict(data)
+
+    def _shorten_path(self, pathname: str) -> str:
+        """Shorten file path for readability."""
+        # Extract relative path from naics_mcp_server
+        if "naics_mcp_server" in pathname:
+            idx = pathname.find("naics_mcp_server")
+            return pathname[idx:]
+        return pathname
+
+    def _format_exception(self, exc_info) -> dict[str, Any]:
+        """Format exception with structured stack trace."""
+        exc_type, exc_value, exc_tb = exc_info
+
+        error_data: dict[str, Any] = {
+            "type": exc_type.__name__ if exc_type else "Unknown",
+            "message": str(exc_value)[:500] if exc_value else "",
+        }
+
+        # Extract stack frames (limit to avoid huge logs)
+        if exc_tb:
+            frames = []
+            for frame_info in traceback.extract_tb(exc_tb)[-5:]:  # Last 5 frames
+                frames.append({
+                    "file": self._shorten_path(frame_info.filename),
+                    "line": frame_info.lineno,
+                    "function": frame_info.name,
+                    "code": frame_info.line[:100] if frame_info.line else None,
+                })
+            error_data["stack"] = frames
+
+        return error_data
 
 
 class TextFormatter(logging.Formatter):
     """
     Formats log records as human-readable text for development.
+
+    Uses colors for different log levels when outputting to a terminal.
     """
 
-    def format(self, record: logging.LogRecord) -> str:
-        # Base format
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        base = f"{timestamp} [{record.levelname:8}] {record.name}: {record.getMessage()}"
+    # ANSI color codes for terminal output
+    COLORS = {
+        "DEBUG": "\033[36m",    # Cyan
+        "INFO": "\033[32m",     # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",    # Red
+        "CRITICAL": "\033[35m", # Magenta
+        "RESET": "\033[0m",     # Reset
+    }
 
-        # Add context if present
+    def __init__(self, use_colors: bool = True):
+        super().__init__()
+        self.use_colors = use_colors and sys.stderr.isatty()
+
+    def format(self, record: logging.LogRecord) -> str:
+        # Timestamp
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+        # Level with optional color
+        level = record.levelname
+        if self.use_colors:
+            color = self.COLORS.get(level, "")
+            reset = self.COLORS["RESET"]
+            level_str = f"{color}{level:8}{reset}"
+        else:
+            level_str = f"{level:8}"
+
+        # Base format
+        base = f"{timestamp} [{level_str}] {record.name}: {record.getMessage()}"
+
+        # Add context if present (abbreviated for readability)
         context = get_request_context()
-        context_parts = [f"{k}={v}" for k, v in context.items() if v is not None]
+        context_parts = []
+        if context.get("request_id"):
+            context_parts.append(f"req={context['request_id'][-8:]}")  # Last 8 chars
+        if context.get("tool"):
+            context_parts.append(f"tool={context['tool']}")
+        if context.get("correlation_id"):
+            context_parts.append(f"corr={context['correlation_id'][-8:]}")
+
         if context_parts:
             base = f"{base} ({', '.join(context_parts)})"
 
         # Add data if present
         if hasattr(record, "data") and record.data:
-            data_str = " ".join(f"{k}={v}" for k, v in record.data.items())
+            data_items = []
+            for k, v in list(record.data.items())[:5]:  # Limit items
+                v_str = str(v)[:50]  # Truncate values
+                data_items.append(f"{k}={v_str}")
+            data_str = " ".join(data_items)
             base = f"{base} | {data_str}"
+
+        # Add exception info if present
+        if record.exc_info:
+            base = f"{base}\n{self.formatException(record.exc_info)}"
 
         return base
 
@@ -279,7 +443,12 @@ def get_logger(name: str) -> StructuredLogger:
 
 
 def setup_logging(
-    level: str | None = None, format: str | None = None, log_file: str | None = None
+    level: str | None = None,
+    format: str | None = None,
+    log_file: str | None = None,
+    service_name: str | None = None,
+    service_version: str | None = None,
+    environment: str | None = None,
 ) -> None:
     """
     Configure logging for the application.
@@ -288,6 +457,9 @@ def setup_logging(
         level: Log level (DEBUG, INFO, WARNING, ERROR)
         format: Log format (json or text)
         log_file: Optional file path for log output
+        service_name: Service name for log records
+        service_version: Service version for log records
+        environment: Environment name (development, staging, production)
 
     Call this once at application startup.
     """
@@ -301,6 +473,13 @@ def setup_logging(
     if log_file:
         config.file_path = log_file
 
+    # Set service metadata
+    set_service_metadata(
+        name=service_name or config.service_name,
+        version=service_version or "0.1.0",
+        environment=environment or config.environment,
+    )
+
     # Get root logger for naics_mcp_server
     root_logger = logging.getLogger("naics_mcp_server")
     root_logger.setLevel(getattr(logging, config.level, logging.INFO))
@@ -308,18 +487,18 @@ def setup_logging(
     # Remove existing handlers
     root_logger.handlers.clear()
 
-    # Create formatter
+    # Create formatter based on format type
     if config.format == "json":
         formatter = JSONFormatter(include_timestamp=config.include_timestamp)
     else:
-        formatter = TextFormatter()
+        formatter = TextFormatter(use_colors=True)
 
-    # Console handler
+    # Console handler (stderr)
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
-    # File handler if configured
+    # File handler if configured (always JSON for file logs)
     if config.file_path:
         file_path = Path(config.file_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -327,13 +506,40 @@ def setup_logging(
         file_handler = RotatingFileHandler(
             file_path, maxBytes=config.max_size_mb * 1024 * 1024, backupCount=config.retention_count
         )
-        file_handler.setFormatter(formatter)
+        # Always use JSON for file logs (easier to parse)
+        file_handler.setFormatter(JSONFormatter(include_timestamp=True))
         root_logger.addHandler(file_handler)
 
     # Reduce noise from third-party libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
+def setup_logging_from_config() -> None:
+    """
+    Configure logging from LoggingConfig (Pydantic).
+
+    This is the preferred method for production deployments.
+    """
+    try:
+        from ..config import get_logging_config, get_server_config
+
+        logging_config = get_logging_config()
+        server_config = get_server_config()
+
+        setup_logging(
+            level=logging_config.log_level,
+            format=logging_config.log_format,
+            log_file=logging_config.log_file,
+            service_name=logging_config.service_name,
+            service_version=server_config.version,
+            environment=logging_config.environment,
+        )
+    except Exception:
+        # Fall back to environment variables if config not available
+        setup_logging()
 
 
 # --- Decorators ---

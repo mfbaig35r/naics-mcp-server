@@ -4,10 +4,15 @@ Observability module for NAICS MCP Server.
 
 from .audit import SearchAuditLog, SearchEvent
 from .logging import (
+    JSONFormatter,
     LogConfig,
+    StructuredLogger,
+    TextFormatter,
     clear_request_context,
+    generate_correlation_id,
     generate_request_id,
     get_logger,
+    get_request_context,
     log_operation,
     log_server_ready,
     log_server_shutdown,
@@ -16,7 +21,9 @@ from .logging import (
     sanitize_dict,
     sanitize_text,
     set_request_context,
+    set_service_metadata,
     setup_logging,
+    setup_logging_from_config,
 )
 from .metrics import (
     Timer,
@@ -62,10 +69,14 @@ __all__ = [
     "SearchEvent",
     # Logging
     "setup_logging",
+    "setup_logging_from_config",
     "get_logger",
     "set_request_context",
     "clear_request_context",
+    "get_request_context",
     "generate_request_id",
+    "generate_correlation_id",
+    "set_service_metadata",
     "sanitize_text",
     "sanitize_dict",
     "log_tool_call",
@@ -74,6 +85,9 @@ __all__ = [
     "log_server_ready",
     "log_server_shutdown",
     "LogConfig",
+    "JSONFormatter",
+    "TextFormatter",
+    "StructuredLogger",
     # Metrics
     "initialize_metrics",
     "reset_metrics",

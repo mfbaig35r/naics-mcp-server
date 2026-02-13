@@ -26,6 +26,13 @@ Environment Variables:
     NAICS_SEARCH_RPM: RPM for search tools (default: 30)
     NAICS_CLASSIFY_RPM: RPM for classification tools (default: 20)
     NAICS_BATCH_RPM: RPM for batch operations (default: 10)
+
+    Logging:
+    NAICS_LOG_LEVEL: Log level - DEBUG, INFO, WARNING, ERROR (default: INFO)
+    NAICS_LOG_FORMAT: Log format - json or text (default: json)
+    NAICS_LOG_FILE: Log file path (logs to stderr if not set)
+    NAICS_SERVICE_NAME: Service name for log records (default: naics-mcp-server)
+    NAICS_ENVIRONMENT: Environment name (default: development)
 """
 
 import logging
@@ -245,6 +252,85 @@ class MetricsConfig(BaseSettings):
         }
 
 
+class LoggingConfig(BaseSettings):
+    """
+    Configuration for structured logging.
+
+    Supports JSON and text formats with sensitive data handling.
+    Environment variables use the NAICS_ prefix.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="NAICS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # Log level and format
+    log_level: str = Field(
+        default="INFO",
+        description="Log level (DEBUG, INFO, WARNING, ERROR)",
+        pattern=r"^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$",
+    )
+    log_format: str = Field(
+        default="json",
+        description="Log format: 'json' for production, 'text' for development",
+        pattern=r"^(json|text)$",
+    )
+
+    # Output configuration
+    log_file: str | None = Field(
+        default=None, description="Log file path (logs to stderr if not set)"
+    )
+    log_max_size_mb: int = Field(
+        default=100, ge=1, le=1000, description="Maximum log file size in MB"
+    )
+    log_retention_count: int = Field(
+        default=5, ge=1, le=30, description="Number of rotated log files to keep"
+    )
+
+    # Timestamps
+    include_timestamp: bool = Field(
+        default=True, description="Include ISO timestamp in log records"
+    )
+
+    # Sensitive data handling
+    max_message_length: int = Field(
+        default=1000, ge=100, le=10000, description="Maximum length for log messages"
+    )
+    max_data_length: int = Field(
+        default=500, ge=50, le=5000, description="Maximum length for data field values"
+    )
+    redact_patterns: bool = Field(
+        default=True, description="Redact sensitive patterns (SSN, email, etc.)"
+    )
+
+    # Service metadata for log records
+    service_name: str = Field(
+        default="naics-mcp-server", description="Service name for log records"
+    )
+    environment: str = Field(
+        default="development", description="Environment name (development, staging, production)"
+    )
+
+    # Performance
+    slow_request_threshold_ms: int = Field(
+        default=200, ge=10, le=10000, description="Threshold for slow request warnings (ms)"
+    )
+
+    def to_dict(self) -> dict:
+        """Convert config to dictionary for logging/debugging."""
+        return {
+            "log_level": self.log_level,
+            "log_format": self.log_format,
+            "log_file": self.log_file,
+            "service_name": self.service_name,
+            "environment": self.environment,
+            "slow_request_threshold_ms": self.slow_request_threshold_ms,
+        }
+
+
 class RateLimitConfig(BaseSettings):
     """
     Configuration for rate limiting.
@@ -392,6 +478,7 @@ class AppConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     def validate_startup(self) -> list[str]:
         """
@@ -438,6 +525,7 @@ class AppConfig(BaseModel):
             "server": self.server.to_dict(),
             "metrics": self.metrics.to_dict(),
             "rate_limit": self.rate_limit.to_dict(),
+            "logging": self.logging.to_dict(),
         }
 
 
@@ -497,6 +585,11 @@ def get_metrics_config() -> MetricsConfig:
 def get_rate_limit_config() -> RateLimitConfig:
     """Get rate limit configuration (convenience function)."""
     return get_config().rate_limit
+
+
+def get_logging_config() -> LoggingConfig:
+    """Get logging configuration (convenience function)."""
+    return get_config().logging
 
 
 # Backwards compatibility - these are deprecated but maintained for existing code

@@ -6,6 +6,7 @@ Adapted for NAICS with 5-level hierarchy, cross-references, and index terms.
 """
 
 import duckdb
+import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
@@ -13,6 +14,15 @@ import logging
 
 from ..models.naics_models import NAICSCode, NAICSLevel, CrossReference, IndexTerm
 from ..models.search_models import SearchStrategy
+from .errors import (
+    DatabaseError,
+    ConnectionError as DBConnectionError,
+    QueryError,
+    NotFoundError,
+    retry_sync,
+    DATABASE_RETRY,
+    RetryConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -126,22 +136,49 @@ class NAICSDatabase:
         self.pool_size = pool_size
         self.connection = None
 
-    def connect(self) -> None:
-        """Establish database connection."""
-        try:
-            # Ensure parent directory exists
-            self.database_path.parent.mkdir(parents=True, exist_ok=True)
+    def connect(self, max_retries: int = 3) -> None:
+        """
+        Establish database connection with retry logic.
 
-            # Connect with read-write access
-            self.connection = duckdb.connect(str(self.database_path))
-            logger.info(f"Connected to database at {self.database_path}")
+        Args:
+            max_retries: Maximum number of connection attempts
 
-            # Initialize schema if needed
-            self._initialize_schema()
+        Raises:
+            DBConnectionError: If connection fails after all retries
+        """
+        last_error = None
 
-        except Exception as e:
-            logger.error(f"Failed to connect to database: {e}")
-            raise
+        for attempt in range(max_retries):
+            try:
+                # Ensure parent directory exists
+                self.database_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Connect with read-write access
+                self.connection = duckdb.connect(str(self.database_path))
+                logger.info(f"Connected to database at {self.database_path}")
+
+                # Initialize schema if needed
+                self._initialize_schema()
+                return  # Success
+
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    delay = DATABASE_RETRY.get_delay(attempt)
+                    logger.warning(
+                        f"Database connection attempt {attempt + 1}/{max_retries} failed: {e}. "
+                        f"Retrying in {delay:.2f}s..."
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(f"Failed to connect to database after {max_retries} attempts: {e}")
+
+        # All retries exhausted
+        raise DBConnectionError(
+            message=f"Failed to connect to database after {max_retries} attempts",
+            details={"database_path": str(self.database_path)},
+            cause=last_error
+        )
 
     def _initialize_schema(self) -> None:
         """Initialize database schema if tables don't exist."""
@@ -187,6 +224,15 @@ class NAICSDatabase:
             self.connection = None
             logger.info("Database connection closed")
 
+    def _ensure_connected(self) -> None:
+        """Ensure database is connected, raise if not."""
+        if not self.connection:
+            raise DatabaseError(
+                message="Database not connected",
+                retryable=True,
+                details={"database_path": str(self.database_path)}
+            )
+
     async def get_by_code(self, node_code: str) -> Optional[NAICSCode]:
         """
         Retrieve a specific NAICS code.
@@ -197,8 +243,7 @@ class NAICSDatabase:
         Returns:
             NAICSCode object or None if not found
         """
-        if not self.connection:
-            raise RuntimeError("Database not connected")
+        self._ensure_connected()
 
         try:
             query = """
@@ -232,8 +277,7 @@ class NAICSDatabase:
         Returns:
             List of matches with relevance scores
         """
-        if not self.connection:
-            raise RuntimeError("Database not connected")
+        self._ensure_connected()
 
         try:
             # Build search condition for multiple terms
@@ -280,8 +324,7 @@ class NAICSDatabase:
         Returns:
             List of matching IndexTerm objects
         """
-        if not self.connection:
-            raise RuntimeError("Database not connected")
+        self._ensure_connected()
 
         try:
             query = """
@@ -319,8 +362,7 @@ class NAICSDatabase:
         Returns:
             List of IndexTerm objects
         """
-        if not self.connection:
-            raise RuntimeError("Database not connected")
+        self._ensure_connected()
 
         try:
             query = """
@@ -359,8 +401,7 @@ class NAICSDatabase:
         Returns:
             List of CrossReference objects
         """
-        if not self.connection:
-            raise RuntimeError("Database not connected")
+        self._ensure_connected()
 
         try:
             query = """
@@ -405,8 +446,7 @@ class NAICSDatabase:
         Returns:
             List of matching CrossReference objects
         """
-        if not self.connection:
-            raise RuntimeError("Database not connected")
+        self._ensure_connected()
 
         try:
             query = """
@@ -446,8 +486,7 @@ class NAICSDatabase:
         Returns:
             List of NAICSCode objects from sector to specific code
         """
-        if not self.connection:
-            raise RuntimeError("Database not connected")
+        self._ensure_connected()
 
         try:
             # First get the code to understand its hierarchy
@@ -493,8 +532,7 @@ class NAICSDatabase:
         Returns:
             List of child NAICSCode objects
         """
-        if not self.connection:
-            raise RuntimeError("Database not connected")
+        self._ensure_connected()
 
         try:
             parent = await self.get_by_code(parent_code)
@@ -548,8 +586,7 @@ class NAICSDatabase:
         Returns:
             List of sibling NAICSCode objects
         """
-        if not self.connection:
-            raise RuntimeError("Database not connected")
+        self._ensure_connected()
 
         try:
             code = await self.get_by_code(node_code)
@@ -602,8 +639,7 @@ class NAICSDatabase:
         Returns:
             Dictionary of statistics about the database
         """
-        if not self.connection:
-            raise RuntimeError("Database not connected")
+        self._ensure_connected()
 
         try:
             stats = {}

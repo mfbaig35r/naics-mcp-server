@@ -8,6 +8,7 @@ import pytest
 from pathlib import Path
 
 from naics_mcp_server.core.database import NAICSDatabase, get_database
+from naics_mcp_server.core.errors import DatabaseError
 from naics_mcp_server.models.naics_models import NAICSCode, NAICSLevel, CrossReference, IndexTerm
 
 
@@ -46,7 +47,7 @@ class TestNAICSDatabaseConnection:
         """Operations should fail if database is not connected."""
         db = NAICSDatabase(temp_db_path)
 
-        with pytest.raises(RuntimeError, match="Database not connected"):
+        with pytest.raises(DatabaseError, match="Database not connected"):
             import asyncio
             asyncio.run(db.get_by_code("311111"))
 

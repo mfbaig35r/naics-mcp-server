@@ -21,6 +21,7 @@ from ..core.database import NAICSDatabase
 from ..core.embeddings import TextEmbedder, EmbeddingCache
 from ..core.query_expansion import QueryExpander, SmartQueryParser
 from ..core.cross_reference import CrossReferenceService
+from ..core.errors import SearchError, EmbeddingError, DatabaseError
 from ..models.naics_models import NAICSCode, NAICSLevel, CrossReference, IndexTerm
 from ..models.search_models import (
     NAICSMatch, SearchResults, SearchStrategy,
@@ -318,11 +319,31 @@ class NAICSSearchEngine:
                         "action": "verified"
                     }
 
+        except EmbeddingError as e:
+            logger.error(f"Embedding error during initialization: {e}")
+            return {
+                "status": "error",
+                "error": e.message,
+                "error_category": e.category.value,
+                "retryable": e.retryable,
+                "time_seconds": time.time() - start_time
+            }
+        except DatabaseError as e:
+            logger.error(f"Database error during embedding initialization: {e}")
+            return {
+                "status": "error",
+                "error": e.message,
+                "error_category": e.category.value,
+                "retryable": e.retryable,
+                "time_seconds": time.time() - start_time
+            }
         except Exception as e:
             logger.error(f"Failed to initialize embeddings: {e}")
             return {
                 "status": "error",
                 "error": str(e),
+                "error_category": "permanent",
+                "retryable": False,
                 "time_seconds": time.time() - start_time
             }
 
@@ -449,7 +470,8 @@ class NAICSSearchEngine:
         index_term_matches = await self._search_index_terms(query)
         index_term_codes = {it.naics_code for it in index_term_matches}
 
-        # Execute search based on strategy
+        # Execute search based on strategy with graceful degradation
+        fallback_used = None
         try:
             if strategy == SearchStrategy.HYBRID:
                 matches = await self._hybrid_search(query, expanded_terms, index_term_codes)
@@ -457,8 +479,24 @@ class NAICSSearchEngine:
                 matches = await self._semantic_search(query, expanded_terms)
             else:
                 matches = await self._lexical_search(query, expanded_terms)
+        except EmbeddingError as e:
+            logger.warning(f"Embedding error during {strategy.value} search, falling back to lexical: {e}")
+            fallback_used = "lexical"
+            try:
+                matches = await self._lexical_search(query, expanded_terms)
+                strategy = SearchStrategy.LEXICAL
+            except Exception as fallback_error:
+                logger.error(f"Fallback search also failed: {fallback_error}")
+                matches = []
+        except DatabaseError as e:
+            if e.retryable:
+                logger.warning(f"Transient database error during search: {e}")
+                # Could implement retry here
+            logger.error(f"Database error during {strategy.value} search: {e}")
+            matches = []
         except Exception as e:
             logger.error(f"Search failed with {strategy.value}, falling back to lexical: {e}")
+            fallback_used = "lexical"
             try:
                 matches = await self._lexical_search(query, expanded_terms)
                 strategy = SearchStrategy.LEXICAL
@@ -512,7 +550,8 @@ class NAICSSearchEngine:
             processing_time_ms=int((time.time() - start_time) * 1000),
             total_candidates_considered=len(matches),
             index_terms_searched=len(index_term_matches),
-            cross_refs_checked=cross_refs_checked
+            cross_refs_checked=cross_refs_checked,
+            fallback_used=fallback_used
         )
 
         results = SearchResults(

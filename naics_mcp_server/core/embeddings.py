@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 import logging
 
+from .errors import EmbeddingError, ConfigurationError
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,9 +63,21 @@ class TextEmbedder:
             self.dimension = self.model.get_sentence_embedding_dimension()
             logger.info(f"Model loaded successfully. Embedding dimension: {self.dimension}")
 
+        except ImportError as e:
+            logger.error(f"sentence-transformers not installed: {e}")
+            raise ConfigurationError(
+                message="sentence-transformers package not installed",
+                config_key="embedding_model",
+                details={"model_name": self.model_name}
+            )
         except Exception as e:
             logger.error(f"Failed to load embedding model: {e}")
-            raise RuntimeError(f"Could not load embedding model {self.model_name}: {e}")
+            raise EmbeddingError(
+                message=f"Could not load embedding model {self.model_name}",
+                retryable=False,
+                details={"model_name": self.model_name, "cache_dir": str(self.cache_dir)},
+                cause=e
+            )
 
     def embed_text(self, text: str, normalize: bool = True) -> np.ndarray:
         """
@@ -89,7 +103,12 @@ class TextEmbedder:
 
         except Exception as e:
             logger.error(f"Failed to embed text: {e}")
-            raise
+            raise EmbeddingError(
+                message="Failed to generate embedding for text",
+                retryable=True,
+                details={"text_preview": text[:50] if text else ""},
+                cause=e
+            )
 
     def embed_batch(
         self,
@@ -125,7 +144,12 @@ class TextEmbedder:
 
         except Exception as e:
             logger.error(f"Failed to embed batch: {e}")
-            raise
+            raise EmbeddingError(
+                message="Failed to generate embeddings for batch",
+                retryable=True,
+                details={"batch_size": len(texts)},
+                cause=e
+            )
 
     def compute_similarity(
         self,

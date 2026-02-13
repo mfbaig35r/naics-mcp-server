@@ -33,6 +33,10 @@ from .observability.logging import (
     log_server_ready,
     log_server_shutdown,
 )
+from .core.errors import (
+    NAICSException, DatabaseError, NotFoundError, ValidationError,
+    SearchError, handle_tool_error
+)
 from .tools.workbook_tools import (
     WorkbookWriteRequest, WorkbookSearchRequest, WorkbookTemplateRequest
 )
@@ -421,12 +425,16 @@ async def search_index_terms(
             "total_found": len(terms)
         }
 
+    except NAICSException as e:
+        logger.error(f"Index term search failed: {e}")
+        result = handle_tool_error(e, "search_index_terms")
+        result["matches"] = []
+        return result
     except Exception as e:
         logger.error(f"Index term search failed: {e}")
-        return {
-            "error": str(e),
-            "matches": []
-        }
+        result = handle_tool_error(e, "search_index_terms")
+        result["matches"] = []
+        return result
 
 
 @mcp.tool()
@@ -479,12 +487,16 @@ async def find_similar_industries(
             "similar_codes": similar
         }
 
+    except NAICSException as e:
+        logger.error(f"Similarity search failed: {e}")
+        result = handle_tool_error(e, "find_similar_industries")
+        result["similar_codes"] = []
+        return result
     except Exception as e:
         logger.error(f"Similarity search failed: {e}")
-        return {
-            "error": str(e),
-            "similar_codes": []
-        }
+        result = handle_tool_error(e, "find_similar_industries")
+        result["similar_codes"] = []
+        return result
 
 
 @mcp.tool()
@@ -589,12 +601,16 @@ async def get_code_hierarchy(
             "hierarchy": hierarchy_list
         }
 
+    except NAICSException as e:
+        logger.error(f"Failed to get hierarchy: {e}")
+        result = handle_tool_error(e, "get_code_hierarchy")
+        result["hierarchy"] = []
+        return result
     except Exception as e:
         logger.error(f"Failed to get hierarchy: {e}")
-        return {
-            "error": str(e),
-            "hierarchy": []
-        }
+        result = handle_tool_error(e, "get_code_hierarchy")
+        result["hierarchy"] = []
+        return result
 
 
 @mcp.tool()
@@ -626,12 +642,16 @@ async def get_children(
             "count": len(children)
         }
 
+    except NAICSException as e:
+        logger.error(f"Failed to get children: {e}")
+        result = handle_tool_error(e, "get_children")
+        result["children"] = []
+        return result
     except Exception as e:
         logger.error(f"Failed to get children: {e}")
-        return {
-            "error": str(e),
-            "children": []
-        }
+        result = handle_tool_error(e, "get_children")
+        result["children"] = []
+        return result
 
 
 @mcp.tool()
@@ -671,12 +691,16 @@ async def get_siblings(
             ]
         }
 
+    except NAICSException as e:
+        logger.error(f"Failed to get siblings: {e}")
+        result = handle_tool_error(e, "get_siblings")
+        result["siblings"] = []
+        return result
     except Exception as e:
         logger.error(f"Failed to get siblings: {e}")
-        return {
-            "error": str(e),
-            "siblings": []
-        }
+        result = handle_tool_error(e, "get_siblings")
+        result["siblings"] = []
+        return result
 
 
 # === Classification Tools (3) ===

@@ -172,10 +172,11 @@ class QueryMetadata:
     total_candidates_considered: int
     index_terms_searched: int = 0  # How many index terms were checked
     cross_refs_checked: int = 0  # How many cross-refs were checked
+    fallback_used: Optional[str] = None  # If primary strategy failed, what fallback was used
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             "query": self.original_query,
             "expanded": self.was_expanded,
             "strategy": self.strategy_used,
@@ -184,6 +185,9 @@ class QueryMetadata:
             "index_terms_searched": self.index_terms_searched,
             "cross_refs_checked": self.cross_refs_checked
         }
+        if self.fallback_used:
+            result["fallback_used"] = self.fallback_used
+        return result
 
 
 @dataclass

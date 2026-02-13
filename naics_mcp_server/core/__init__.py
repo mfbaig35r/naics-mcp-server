@@ -37,6 +37,16 @@ from .health import (
     readiness_check,
 )
 from .query_expansion import QueryExpander, SmartQueryParser
+from .shutdown import (
+    RequestTracker,
+    ShutdownConfig,
+    ShutdownManager,
+    ShutdownResult,
+    ShutdownState,
+    create_shutdown_manager,
+    get_shutdown_manager,
+    reset_shutdown_manager,
+)
 from .search_engine import NAICSSearchEngine, generate_search_guidance
 from .validation import (
     ValidationConfig,
@@ -114,4 +124,13 @@ __all__ = [
     "ComponentHealth",
     "liveness_check",
     "readiness_check",
+    # Shutdown
+    "ShutdownManager",
+    "ShutdownConfig",
+    "ShutdownState",
+    "ShutdownResult",
+    "RequestTracker",
+    "get_shutdown_manager",
+    "create_shutdown_manager",
+    "reset_shutdown_manager",
 ]

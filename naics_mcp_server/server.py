@@ -16,7 +16,7 @@ from typing import Any
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import BaseModel, Field
 
-from .config import SearchConfig, ServerConfig, get_rate_limit_config
+from .config import SearchConfig, ServerConfig, get_rate_limit_config, get_shutdown_config
 from .core.classification_workbook import ClassificationWorkbook, FormType
 from .core.cross_reference import CrossReferenceService
 from .core.database import NAICSDatabase
@@ -24,6 +24,7 @@ from .core.embeddings import TextEmbedder
 from .core.errors import NAICSException, RateLimitError, ValidationError, handle_tool_error
 from .core.health import HealthChecker
 from .core.search_engine import NAICSSearchEngine, generate_search_guidance
+from .core.shutdown import ShutdownConfig, ShutdownManager, create_shutdown_manager
 from .core.validation import (
     validate_batch_codes,
     validate_batch_descriptions,
@@ -83,6 +84,7 @@ class AppContext:
         classification_workbook: ClassificationWorkbook,
         health_checker: HealthChecker,
         rate_limiter: RateLimiter | None = None,
+        shutdown_manager: ShutdownManager | None = None,
     ):
         self.database = database
         self.embedder = embedder
@@ -92,6 +94,7 @@ class AppContext:
         self.classification_workbook = classification_workbook
         self.health_checker = health_checker
         self.rate_limiter = rate_limiter
+        self.shutdown_manager = shutdown_manager
 
 
 # Request/Response models
@@ -170,6 +173,18 @@ async def lifespan(server: FastMCP):
     # Load configuration
     search_config = SearchConfig.from_env()
     server_config = ServerConfig.from_env()
+    shutdown_config = get_shutdown_config()
+
+    # Create shutdown manager with config
+    shutdown_mgr_config = ShutdownConfig(
+        timeout_seconds=shutdown_config.shutdown_timeout_seconds,
+        drain_check_interval=shutdown_config.drain_check_interval,
+        grace_period_seconds=shutdown_config.grace_period_seconds,
+        force_after_timeout=shutdown_config.force_after_timeout,
+        handle_sigterm=shutdown_config.handle_sigterm,
+        handle_sigint=shutdown_config.handle_sigint,
+    )
+    shutdown_manager = create_shutdown_manager(shutdown_mgr_config)
 
     # Log startup with config
     log_server_start(
@@ -177,6 +192,7 @@ async def lifespan(server: FastMCP):
             "database_path": str(search_config.database_path),
             "embedding_model": search_config.embedding_model,
             "debug": server_config.debug,
+            "shutdown_timeout": shutdown_config.shutdown_timeout_seconds,
         }
     )
 
@@ -255,6 +271,31 @@ async def lifespan(server: FastMCP):
         classification_workbook,
         health_checker,
         rate_limiter,
+        shutdown_manager,
+    )
+
+    # Register shutdown hooks (in order of priority - lower = earlier)
+    shutdown_manager.register_hook(
+        "audit_log",
+        lambda: audit_log.flush() if hasattr(audit_log, "flush") else None,
+        priority=10,
+        timeout_seconds=2.0,
+    )
+    shutdown_manager.register_hook(
+        "search_cache",
+        lambda: search_engine.clear_caches() if hasattr(search_engine, "clear_caches") else None,
+        priority=20,
+        timeout_seconds=2.0,
+    )
+    shutdown_manager.register_hook(
+        "database",
+        database.disconnect,
+        priority=100,  # Database last
+        timeout_seconds=5.0,
+    )
+    logger.info(
+        "Shutdown hooks registered",
+        data={"hooks": ["audit_log", "search_cache", "database"]},
     )
 
     # Log server ready with stats
@@ -283,12 +324,14 @@ async def lifespan(server: FastMCP):
         update_health_status("healthy", uptime_seconds=0)
         logger.info("Metrics initialized", data={"port": metrics_config.metrics_port})
 
-    try:
-        yield app_context
-    finally:
-        log_server_shutdown()
-        database.disconnect()
-        logger.info("Shutdown complete")
+    # Use shutdown manager's lifespan for signal handling
+    async with shutdown_manager.lifespan():
+        try:
+            yield app_context
+        finally:
+            log_server_shutdown()
+            # Shutdown hooks are executed by the shutdown manager
+            logger.info("Shutdown complete")
 
 
 # Server instructions for LLM orchestration
@@ -1864,6 +1907,30 @@ async def get_metrics() -> dict[str, Any]:
     }
 
     return summary
+
+
+@mcp.tool()
+async def get_shutdown_status(ctx: Context) -> dict[str, Any]:
+    """
+    Get the current shutdown manager status.
+
+    Returns information about:
+    - Server state (running, shutting_down, draining, stopped)
+    - In-flight request count
+    - Registered cleanup hooks
+    - Shutdown configuration
+
+    Use this to monitor shutdown progress or verify server state.
+    """
+    app_ctx: AppContext = ctx.request_context.lifespan_context
+
+    if app_ctx.shutdown_manager is None:
+        return {
+            "status": "unavailable",
+            "message": "Shutdown manager not configured",
+        }
+
+    return await app_ctx.shutdown_manager.get_status()
 
 
 # === Resources ===

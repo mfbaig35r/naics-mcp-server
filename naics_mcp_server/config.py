@@ -411,6 +411,49 @@ class RateLimitConfig(BaseSettings):
         }
 
 
+class ShutdownConfig(BaseSettings):
+    """
+    Configuration for graceful shutdown.
+
+    Environment variables use the NAICS_ prefix.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="NAICS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # Timeouts
+    shutdown_timeout_seconds: float = Field(
+        default=30.0, ge=5.0, le=300.0, description="Maximum time to wait for shutdown"
+    )
+    drain_check_interval: float = Field(
+        default=0.5, ge=0.1, le=5.0, description="Interval between drain checks"
+    )
+    grace_period_seconds: float = Field(
+        default=1.0, ge=0.0, le=30.0, description="Grace period before draining"
+    )
+
+    # Behavior
+    force_after_timeout: bool = Field(
+        default=True, description="Force shutdown after timeout (vs wait indefinitely)"
+    )
+    handle_sigterm: bool = Field(default=True, description="Handle SIGTERM for graceful shutdown")
+    handle_sigint: bool = Field(default=True, description="Handle SIGINT (Ctrl+C) gracefully")
+
+    def to_dict(self) -> dict:
+        """Convert config to dictionary for logging/debugging."""
+        return {
+            "shutdown_timeout_seconds": self.shutdown_timeout_seconds,
+            "grace_period_seconds": self.grace_period_seconds,
+            "force_after_timeout": self.force_after_timeout,
+            "handle_sigterm": self.handle_sigterm,
+            "handle_sigint": self.handle_sigint,
+        }
+
+
 class ServerConfig(BaseSettings):
     """
     Configuration for the MCP server itself.
@@ -479,6 +522,7 @@ class AppConfig(BaseModel):
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    shutdown: ShutdownConfig = Field(default_factory=ShutdownConfig)
 
     def validate_startup(self) -> list[str]:
         """
@@ -526,6 +570,7 @@ class AppConfig(BaseModel):
             "metrics": self.metrics.to_dict(),
             "rate_limit": self.rate_limit.to_dict(),
             "logging": self.logging.to_dict(),
+            "shutdown": self.shutdown.to_dict(),
         }
 
 
@@ -590,6 +635,11 @@ def get_rate_limit_config() -> RateLimitConfig:
 def get_logging_config() -> LoggingConfig:
     """Get logging configuration (convenience function)."""
     return get_config().logging
+
+
+def get_shutdown_config() -> ShutdownConfig:
+    """Get shutdown configuration (convenience function)."""
+    return get_config().shutdown
 
 
 # Backwards compatibility - these are deprecated but maintained for existing code

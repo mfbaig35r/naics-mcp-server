@@ -1,0 +1,76 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+dist/
+build/
+eggs/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# Type checking
+.mypy_cache/
+.ruff_cache/
+
+# Documentation build
+docs/_build/
+site/
+
+# Jupyter/notebooks
+.ipynb_checkpoints/
+notebooks/
+*.ipynb
+
+# Project specific - exclude raw data and existing database
+raw-data/
+data/*.duckdb
+
+# Logs
+logs/
+*.log
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.docker/
+
+# CI/CD
+.github/
+
+# Misc
+*.md
+!README.md
+LICENSE
+Makefile

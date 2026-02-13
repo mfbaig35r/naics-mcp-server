@@ -1,0 +1,157 @@
+# NAICS MCP Server - Docker Compose Configuration
+#
+# Usage:
+#   docker compose up              # Start the server
+#   docker compose up -d           # Start in background
+#   docker compose --profile dev up # Start with dev tools
+#   docker compose down            # Stop and remove containers
+
+services:
+  # ==========================================================================
+  # Production MCP Server
+  # ==========================================================================
+  naics-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: naics-mcp-server:latest
+    container_name: naics-mcp-server
+
+    # Volume mounts
+    volumes:
+      # Persistent data storage
+      - naics-data:/app/data
+      # Model cache (sentence-transformers)
+      - naics-cache:/app/cache
+      # Logs
+      - naics-logs:/app/logs
+
+    # Environment configuration
+    environment:
+      - NAICS_DATABASE_PATH=/app/data/naics.duckdb
+      - NAICS_LOG_LEVEL=${NAICS_LOG_LEVEL:-INFO}
+      - NAICS_LOG_FORMAT=${NAICS_LOG_FORMAT:-json}
+      - NAICS_EMBEDDING_MODEL=${NAICS_EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - NAICS_DEBUG=${NAICS_DEBUG:-false}
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "from naics_mcp_server.core.health import liveness_check; import asyncio; asyncio.run(liveness_check())"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # Allow time for model download on first run
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
+    # Restart policy
+    restart: unless-stopped
+
+  # ==========================================================================
+  # Development Server (with hot reload)
+  # ==========================================================================
+  naics-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: naics-mcp-server:dev
+    container_name: naics-mcp-dev
+    profiles:
+      - dev
+
+    volumes:
+      # Mount source code for hot reload
+      - ./naics_mcp_server:/app/naics_mcp_server:ro
+      - ./tests:/app/tests:ro
+      # Persistent data
+      - naics-data:/app/data
+      - naics-cache:/app/cache
+
+    environment:
+      - NAICS_DATABASE_PATH=/app/data/naics.duckdb
+      - NAICS_LOG_LEVEL=DEBUG
+      - NAICS_LOG_FORMAT=text
+      - NAICS_DEBUG=true
+
+    # Override to run with debug flag
+    command: ["--debug"]
+
+  # ==========================================================================
+  # Database Initialization Job
+  # ==========================================================================
+  naics-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: naics-mcp-server:latest
+    container_name: naics-mcp-init
+    profiles:
+      - init
+
+    volumes:
+      - naics-data:/app/data
+      - naics-cache:/app/cache
+      # Mount raw data if available for ETL
+      - ./raw-data:/app/raw-data:ro
+
+    environment:
+      - NAICS_DATABASE_PATH=/app/data/naics.duckdb
+      - NAICS_LOG_LEVEL=INFO
+
+    # Run init command then exit
+    entrypoint: ["naics-mcp", "init"]
+
+    restart: "no"
+
+  # ==========================================================================
+  # Embeddings Generation Job
+  # ==========================================================================
+  naics-embeddings:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: naics-mcp-server:latest
+    container_name: naics-mcp-embeddings
+    profiles:
+      - init
+
+    volumes:
+      - naics-data:/app/data
+      - naics-cache:/app/cache
+
+    environment:
+      - NAICS_DATABASE_PATH=/app/data/naics.duckdb
+      - NAICS_EMBEDDING_MODEL=${NAICS_EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - NAICS_LOG_LEVEL=INFO
+
+    # Run embeddings generation then exit
+    entrypoint: ["naics-mcp", "embeddings"]
+
+    # This can take a while
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+    restart: "no"
+
+# ==========================================================================
+# Named Volumes
+# ==========================================================================
+volumes:
+  naics-data:
+    name: naics-mcp-data
+  naics-cache:
+    name: naics-mcp-cache
+  naics-logs:
+    name: naics-mcp-logs

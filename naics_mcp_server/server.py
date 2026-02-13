@@ -210,9 +210,59 @@ async def lifespan(server: FastMCP):
         logger.info("Shutdown complete")
 
 
+# Server instructions for LLM orchestration
+SERVER_INSTRUCTIONS = """
+# NAICS Classification Assistant - Workflow Guide
+
+## Quick Classification (Simple Business)
+For straightforward single-activity businesses:
+1. `classify_business` with a clear description
+2. If confidence > 60%, you're likely done
+3. Optionally verify with `search_index_terms` for exact terminology
+
+## Full Classification (Complex/Multi-Segment Business)
+For companies with multiple business lines or ambiguous activities:
+1. Research the company's segments and primary revenue sources
+2. `classify_business` for initial assessment
+3. `search_naics_codes` for each major segment/activity
+4. `search_index_terms` for specific products/services
+5. `compare_codes` for top candidates side-by-side
+6. `get_cross_references` to check for exclusions (CRITICAL)
+7. `get_siblings` or `find_similar_industries` for alternatives
+8. `write_to_workbook` with form_type="classification_analysis" to document
+
+## Boundary Cases (Activity Could Fit Multiple Codes)
+When a business sits between two codes:
+1. Search from multiple angles (product vs service vs customer)
+2. `get_cross_references` on both candidates - exclusions are authoritative
+3. `compare_codes` to see descriptions and index terms side-by-side
+4. `get_code_hierarchy` to understand where each code sits conceptually
+5. Document with `write_to_workbook` form_type="decision_tree"
+
+## Batch Classification
+For processing many businesses:
+1. `classify_batch` for efficiency
+2. Triage by confidence: >50% accept, 35-50% spot-check, <35% manual review
+3. Use full classification workflow for low-confidence items
+
+## Exploring the NAICS Hierarchy
+1. `get_sector_overview` to see all 20 sectors
+2. `get_children` to drill down into subsectors
+3. `get_siblings` to see what else is at the same level
+4. `find_similar_industries` for semantically related codes
+
+## Key Principles
+- PRIMARY ACTIVITY determines classification (largest revenue source)
+- 6-digit codes are most specific and preferred
+- Cross-references tell you what activities are EXCLUDED - always check
+- Index term matches are strong evidence of correct classification
+- When uncertain, document reasoning with the workbook tools
+"""
+
 # Create the MCP server
 mcp = FastMCP(
     name="NAICS Classification Assistant",
+    instructions=SERVER_INSTRUCTIONS,
     lifespan=lifespan
 )
 
@@ -1076,6 +1126,108 @@ async def get_workbook_template(
             "error": f"Failed to get template: {str(e)}",
             "success": False
         }
+
+
+# === Health Check ===
+
+@mcp.tool()
+async def get_server_health(ctx: Context) -> Dict[str, Any]:
+    """
+    Check server readiness and data availability.
+
+    Call this first if you're getting empty results or errors.
+    Returns status of all critical components:
+    - Database connection and code counts
+    - Embedding model readiness
+    - Cross-reference data availability
+    - Workbook writability
+
+    If any component shows "not_ready", the server may need
+    time to initialize or there may be a configuration issue.
+    """
+    app_ctx: AppContext = ctx.request_context.lifespan_context
+    health = {
+        "status": "healthy",
+        "components": {},
+        "issues": []
+    }
+
+    # Check database
+    try:
+        stats = await app_ctx.database.get_statistics()
+        total_codes = stats.get("total_codes", 0)
+        health["components"]["database"] = {
+            "status": "ready" if total_codes > 0 else "empty",
+            "total_codes": total_codes,
+            "codes_by_level": stats.get("counts_by_level", {}),
+            "index_terms": stats.get("total_index_terms", 0),
+            "cross_references": stats.get("total_cross_references", 0)
+        }
+        if total_codes == 0:
+            health["issues"].append("Database has no NAICS codes - run ETL notebooks")
+            health["status"] = "degraded"
+    except Exception as e:
+        health["components"]["database"] = {"status": "error", "error": str(e)}
+        health["issues"].append(f"Database error: {e}")
+        health["status"] = "unhealthy"
+
+    # Check embeddings
+    try:
+        embedding_stats = stats.get("embedding_coverage", {})
+        embeddings_ready = app_ctx.search_engine.embeddings_ready
+        coverage = embedding_stats.get("coverage_percent", 0)
+        health["components"]["embeddings"] = {
+            "status": "ready" if embeddings_ready and coverage > 90 else "partial" if coverage > 0 else "not_ready",
+            "coverage_percent": coverage,
+            "model_loaded": app_ctx.embedder.model is not None
+        }
+        if not embeddings_ready:
+            health["issues"].append("Embeddings not fully initialized - semantic search may be limited")
+            if health["status"] == "healthy":
+                health["status"] = "degraded"
+    except Exception as e:
+        health["components"]["embeddings"] = {"status": "error", "error": str(e)}
+
+    # Check cross-references
+    try:
+        xref_count = stats.get("total_cross_references", 0)
+        # Check if excluded_activity is populated
+        sample = app_ctx.database.connection.execute(
+            "SELECT COUNT(*) FROM naics_cross_references WHERE excluded_activity IS NOT NULL"
+        ).fetchone()[0]
+        health["components"]["cross_references"] = {
+            "status": "ready" if xref_count > 0 and sample > 0 else "partial" if xref_count > 0 else "empty",
+            "total": xref_count,
+            "with_excluded_activity": sample
+        }
+        if xref_count == 0:
+            health["issues"].append("No cross-reference data - run 04_load_cross_refs.py")
+    except Exception as e:
+        health["components"]["cross_references"] = {"status": "error", "error": str(e)}
+
+    # Check workbook
+    try:
+        # Try to query workbook table
+        count = app_ctx.database.connection.execute(
+            "SELECT COUNT(*) FROM classification_workbook"
+        ).fetchone()[0]
+        health["components"]["workbook"] = {
+            "status": "ready",
+            "entries": count
+        }
+    except Exception as e:
+        health["components"]["workbook"] = {"status": "error", "error": str(e)}
+        health["issues"].append(f"Workbook not available: {e}")
+
+    # Summary
+    health["summary"] = (
+        f"Database: {health['components'].get('database', {}).get('total_codes', 0):,} codes, "
+        f"{health['components'].get('database', {}).get('index_terms', 0):,} index terms, "
+        f"{health['components'].get('database', {}).get('cross_references', 0):,} cross-refs. "
+        f"Embeddings: {health['components'].get('embeddings', {}).get('coverage_percent', 0):.0f}% coverage."
+    )
+
+    return health
 
 
 # === Resources ===

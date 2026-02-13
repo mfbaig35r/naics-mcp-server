@@ -6,21 +6,21 @@ Tests validators for descriptions, NAICS codes, batches, and search parameters.
 
 import pytest
 
+from naics_mcp_server.core.errors import ValidationError
 from naics_mcp_server.core.validation import (
     ValidationConfig,
     ValidationResult,
+    is_valid_utf8,
+    normalize_text,
+    validate_batch_codes,
+    validate_batch_descriptions,
+    validate_confidence,
     validate_description,
+    validate_limit,
     validate_naics_code,
     validate_search_query,
-    validate_limit,
-    validate_confidence,
-    validate_batch_descriptions,
-    validate_batch_codes,
     validate_strategy,
-    normalize_text,
-    is_valid_utf8,
 )
-from naics_mcp_server.core.errors import ValidationError
 
 
 class TestNormalizeText:
@@ -337,7 +337,7 @@ class TestValidateBatchDescriptions:
         descriptions = [
             "Dog food manufacturing",
             "Software development services",
-            "Restaurant and food service"
+            "Restaurant and food service",
         ]
         result = validate_batch_descriptions(descriptions)
         assert result.is_valid
@@ -365,17 +365,14 @@ class TestValidateBatchDescriptions:
         descriptions = [
             "Valid description here",
             "x",  # Too short
-            "Another valid description"
+            "Another valid description",
         ]
         with pytest.raises(ValidationError, match="index 1"):
             validate_batch_descriptions(descriptions)
 
     def test_items_normalized(self):
         """Items should be normalized."""
-        descriptions = [
-            "  Description  one  ",
-            "Description\ttwo"
-        ]
+        descriptions = ["  Description  one  ", "Description\ttwo"]
         result = validate_batch_descriptions(descriptions)
         assert result.value[0] == "Description one"
         assert result.value[1] == "Description two"
@@ -481,10 +478,7 @@ class TestValidationConfig:
 
     def test_custom_config(self):
         """Custom config should override defaults."""
-        config = ValidationConfig(
-            description_min_length=20,
-            batch_max_size=50
-        )
+        config = ValidationConfig(description_min_length=20, batch_max_size=50)
         assert config.description_min_length == 20
         assert config.batch_max_size == 50
         # Other values should still be defaults

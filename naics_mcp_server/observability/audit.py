@@ -6,12 +6,12 @@ the system over time through understanding usage patterns.
 """
 
 import json
+import logging
 import time
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, asdict
-import logging
+from typing import Any
 
 from ..models.search_models import SearchResults, SearchStrategy
 
@@ -32,13 +32,13 @@ class SearchEvent:
     strategy: SearchStrategy
 
     # Expanded query information
-    expanded_terms: Optional[List[str]] = None
+    expanded_terms: list[str] | None = None
     was_expanded: bool = False
 
     # Results information
     results_count: int = 0
-    top_result_code: Optional[str] = None
-    top_result_confidence: Optional[float] = None
+    top_result_code: str | None = None
+    top_result_confidence: float | None = None
 
     # NAICS-specific metrics
     index_terms_matched: int = 0
@@ -49,11 +49,11 @@ class SearchEvent:
     duration_ms: int = 0
 
     # Optional context
-    user_context: Optional[Dict[str, Any]] = None
+    user_context: dict[str, Any] | None = None
 
     # Status
     success: bool = True
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
     @classmethod
     def start(cls, query: str, strategy: str) -> "SearchEvent":
@@ -71,7 +71,7 @@ class SearchEvent:
             timestamp=datetime.utcnow(),
             query=query,
             strategy=SearchStrategy(strategy),
-            duration_ms=int(time.time() * 1000)  # Start timer
+            duration_ms=int(time.time() * 1000),  # Start timer
         )
 
     def complete(self, results: SearchResults) -> None:
@@ -134,9 +134,9 @@ class SearchAuditLog:
 
     def __init__(
         self,
-        log_dir: Optional[Path] = None,
+        log_dir: Path | None = None,
         retention_days: int = 90,
-        enable_file_logging: bool = True
+        enable_file_logging: bool = True,
     ):
         """
         Initialize the audit log.
@@ -155,7 +155,7 @@ class SearchAuditLog:
             self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # In-memory buffer for recent events
-        self.recent_events: List[SearchEvent] = []
+        self.recent_events: list[SearchEvent] = []
         self.max_recent = 1000
 
     async def log_search(self, event: SearchEvent) -> None:
@@ -201,10 +201,7 @@ class SearchAuditLog:
         except Exception as e:
             logger.error(f"Failed to write audit log: {e}")
 
-    async def analyze_patterns(
-        self,
-        timeframe_hours: int = 24
-    ) -> Dict[str, Any]:
+    async def analyze_patterns(self, timeframe_hours: int = 24) -> dict[str, Any]:
         """
         Analyze search patterns to improve the system.
 
@@ -228,35 +225,31 @@ class SearchAuditLog:
         }
 
         # Find common queries
-        query_counts: Dict[str, int] = {}
+        query_counts: dict[str, int] = {}
         for event in recent:
             query_key = event.query.lower().strip()
             query_counts[query_key] = query_counts.get(query_key, 0) + 1
 
-        top_queries = sorted(
-            query_counts.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:10]
-        analysis["top_queries"] = [
-            {"query": q, "count": c} for q, c in top_queries
-        ]
+        top_queries = sorted(query_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        analysis["top_queries"] = [{"query": q, "count": c} for q, c in top_queries]
 
         # Queries with low confidence results
         low_confidence = []
         for event in recent:
             if event.success and event.top_result_confidence:
                 if event.top_result_confidence < 0.5:
-                    low_confidence.append({
-                        "query": event.query,
-                        "confidence": event.top_result_confidence,
-                        "result": event.top_result_code
-                    })
+                    low_confidence.append(
+                        {
+                            "query": event.query,
+                            "confidence": event.top_result_confidence,
+                            "result": event.top_result_code,
+                        }
+                    )
 
         analysis["low_confidence_queries"] = low_confidence[:10]
 
         # Strategy usage
-        strategy_counts: Dict[str, int] = {}
+        strategy_counts: dict[str, int] = {}
         for event in recent:
             strategy = event.strategy.value
             strategy_counts[strategy] = strategy_counts.get(strategy, 0) + 1
@@ -274,14 +267,12 @@ class SearchAuditLog:
             if e.duration_ms > 200  # NAICS-specific threshold
         ]
         analysis["slow_queries"] = sorted(
-            slow_queries,
-            key=lambda x: x["duration_ms"],
-            reverse=True
+            slow_queries, key=lambda x: x["duration_ms"], reverse=True
         )[:10]
 
         return analysis
 
-    def get_recent_searches(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_recent_searches(self, limit: int = 10) -> list[dict[str, Any]]:
         """
         Get recent searches for monitoring.
 
@@ -301,7 +292,7 @@ class SearchAuditLog:
                 "confidence": e.top_result_confidence,
                 "duration_ms": e.duration_ms,
                 "exclusion_warnings": e.exclusion_warnings,
-                "success": e.success
+                "success": e.success,
             }
             for e in reversed(recent)
         ]

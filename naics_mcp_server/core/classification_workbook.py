@@ -7,13 +7,13 @@ Like a filing cabinet with different forms for different types of work.
 Adapted for NAICS classification with industry-specific form types.
 """
 
-import json
 import hashlib
-from datetime import datetime
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, field
-from enum import Enum
+import json
 import logging
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any
 
 from ..core.database import NAICSDatabase
 
@@ -47,20 +47,20 @@ class WorkbookEntry:
     entry_id: str
     form_type: FormType
     label: str  # Human-readable label for quick reference
-    content: Dict[str, Any]  # The structured content
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    content: dict[str, Any]  # The structured content
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     # Auto-filled fields
     created_at: datetime = field(default_factory=datetime.now)
-    session_id: Optional[str] = None
-    parent_entry_id: Optional[str] = None  # For linked entries
-    tags: List[str] = field(default_factory=list)
+    session_id: str | None = None
+    parent_entry_id: str | None = None  # For linked entries
+    tags: list[str] = field(default_factory=list)
 
     # Search and retrieval helpers
-    search_text: Optional[str] = None  # Denormalized text for full-text search
-    confidence_score: Optional[float] = None
+    search_text: str | None = None  # Denormalized text for full-text search
+    confidence_score: float | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "entry_id": self.entry_id,
@@ -73,7 +73,7 @@ class WorkbookEntry:
             "parent_entry_id": self.parent_entry_id,
             "tags": self.tags,
             "search_text": self.search_text,
-            "confidence_score": self.confidence_score
+            "confidence_score": self.confidence_score,
         }
 
 
@@ -85,27 +85,16 @@ FORM_TEMPLATES = {
         "secondary_activities": [],
         "key_characteristics": [],
         "candidate_codes": [
-            {
-                "code": "",
-                "title": "",
-                "rationale": "",
-                "pros": [],
-                "cons": [],
-                "confidence": 0.0
-            }
+            {"code": "", "title": "", "rationale": "", "pros": [], "cons": [], "confidence": 0.0}
         ],
-        "cross_reference_check": {
-            "exclusions_reviewed": [],
-            "relevant_exclusions": []
-        },
+        "cross_reference_check": {"exclusions_reviewed": [], "relevant_exclusions": []},
         "decision": {
             "selected_code": "",
             "reasoning": "",
             "alternative_if_uncertain": "",
-            "notes": []
-        }
+            "notes": [],
+        },
     },
-
     FormType.INDUSTRY_COMPARISON: {
         "comparison_title": "",
         "codes_compared": [],  # List of NAICS codes being compared
@@ -113,33 +102,26 @@ FORM_TEMPLATES = {
             "primary_activity",
             "production_process",
             "customer_type",
-            "output_type"
+            "output_type",
         ],
         "matrix": {},  # Code -> Criteria -> Assessment
         "analysis": {
             "best_fit": "",
             "reasoning": "",
             "key_differentiators": [],
-            "recommendation": ""
-        }
+            "recommendation": "",
+        },
     },
-
     FormType.CROSS_REFERENCE_NOTES: {
         "source_code": "",
         "source_title": "",
         "activity_in_question": "",
         "exclusions_found": [
-            {
-                "excluded_activity": "",
-                "classified_under": "",
-                "target_code": "",
-                "target_title": ""
-            }
+            {"excluded_activity": "", "classified_under": "", "target_code": "", "target_title": ""}
         ],
         "conclusion": "",
-        "correct_classification": ""
+        "correct_classification": "",
     },
-
     FormType.BUSINESS_PROFILE: {
         "business_name": "",
         "business_description": "",
@@ -153,12 +135,11 @@ FORM_TEMPLATES = {
             "primary_code": "",
             "primary_title": "",
             "secondary_codes": [],
-            "reasoning": ""
+            "reasoning": "",
         },
         "sic_codes_if_known": [],
-        "notes": ""
+        "notes": "",
     },
-
     FormType.DECISION_TREE: {
         "initial_question": "",
         "decision_points": [
@@ -167,17 +148,12 @@ FORM_TEMPLATES = {
                 "answer": "",
                 "reasoning": "",
                 "naics_codes_considered": [],
-                "leads_to": ""
+                "leads_to": "",
             }
         ],
-        "final_classification": {
-            "code": "",
-            "title": "",
-            "confidence": 0.0
-        },
-        "path_summary": []
+        "final_classification": {"code": "", "title": "", "confidence": 0.0},
+        "path_summary": [],
     },
-
     FormType.SIC_CONVERSION: {
         "sic_code": "",
         "sic_title": "",
@@ -187,14 +163,13 @@ FORM_TEMPLATES = {
                 "naics_code": "",
                 "naics_title": "",
                 "relationship": "",  # direct, partial, split
-                "notes": ""
+                "notes": "",
             }
         ],
         "recommended_naics": "",
         "reasoning": "",
-        "additional_context": ""
+        "additional_context": "",
     },
-
     FormType.RESEARCH_NOTES: {
         "research_question": "",
         "sources_consulted": [
@@ -202,19 +177,14 @@ FORM_TEMPLATES = {
                 "type": "",  # NAICS manual, Census, industry guide
                 "reference": "",
                 "key_findings": [],
-                "reliability": 0.0
+                "reliability": 0.0,
             }
         ],
-        "findings": {
-            "primary": [],
-            "secondary": [],
-            "contradictions": [],
-            "gaps": []
-        },
+        "findings": {"primary": [], "secondary": [], "contradictions": [], "gaps": []},
         "synthesis": "",
         "conclusion": "",
-        "follow_up_needed": []
-    }
+        "follow_up_needed": [],
+    },
 }
 
 
@@ -264,7 +234,7 @@ class ClassificationWorkbook:
             ).fetchall()
             column_names = [c[0] for c in columns]
 
-            if 'search_text' not in column_names:
+            if "search_text" not in column_names:
                 logger.info("Migrating classification_workbook: adding search_text column")
                 self.database.connection.execute(
                     "ALTER TABLE classification_workbook ADD COLUMN search_text TEXT"
@@ -289,11 +259,11 @@ class ClassificationWorkbook:
         self,
         form_type: FormType,
         label: str,
-        content: Dict[str, Any],
-        metadata: Optional[Dict[str, Any]] = None,
-        tags: Optional[List[str]] = None,
-        parent_entry_id: Optional[str] = None,
-        confidence_score: Optional[float] = None
+        content: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+        tags: list[str] | None = None,
+        parent_entry_id: str | None = None,
+        confidence_score: float | None = None,
     ) -> WorkbookEntry:
         """
         Create a new workbook entry.
@@ -320,30 +290,33 @@ class ClassificationWorkbook:
             parent_entry_id=parent_entry_id,
             tags=tags or [],
             confidence_score=confidence_score,
-            search_text=self._extract_search_text(content)
+            search_text=self._extract_search_text(content),
         )
 
         # Store in database
         try:
-            self.database.connection.execute("""
+            self.database.connection.execute(
+                """
                 INSERT INTO classification_workbook (
                     entry_id, form_type, label, content, metadata,
                     created_at, session_id, parent_entry_id, tags,
                     search_text, confidence_score
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [
-                entry.entry_id,
-                entry.form_type.value,
-                entry.label,
-                json.dumps(entry.content),
-                json.dumps(entry.metadata),
-                entry.created_at,
-                entry.session_id,
-                entry.parent_entry_id,
-                json.dumps(entry.tags),
-                entry.search_text,
-                entry.confidence_score
-            ])
+            """,
+                [
+                    entry.entry_id,
+                    entry.form_type.value,
+                    entry.label,
+                    json.dumps(entry.content),
+                    json.dumps(entry.metadata),
+                    entry.created_at,
+                    entry.session_id,
+                    entry.parent_entry_id,
+                    json.dumps(entry.tags),
+                    entry.search_text,
+                    entry.confidence_score,
+                ],
+            )
 
             logger.info(f"Created workbook entry: {entry.label} ({entry.entry_id})")
             return entry
@@ -352,7 +325,7 @@ class ClassificationWorkbook:
             logger.error(f"Failed to create workbook entry: {e}")
             raise
 
-    async def get_entry(self, entry_id: str) -> Optional[WorkbookEntry]:
+    async def get_entry(self, entry_id: str) -> WorkbookEntry | None:
         """
         Retrieve a specific workbook entry.
 
@@ -363,13 +336,16 @@ class ClassificationWorkbook:
             WorkbookEntry or None if not found
         """
         try:
-            result = self.database.connection.execute("""
+            result = self.database.connection.execute(
+                """
                 SELECT entry_id, form_type, label, content, metadata,
                        created_at, session_id, parent_entry_id, tags,
                        search_text, confidence_score
                 FROM classification_workbook
                 WHERE entry_id = ?
-            """, [entry_id]).fetchone()
+            """,
+                [entry_id],
+            ).fetchone()
 
             if result:
                 return self._row_to_entry(result)
@@ -381,13 +357,13 @@ class ClassificationWorkbook:
 
     async def search_entries(
         self,
-        form_type: Optional[FormType] = None,
-        session_id: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        search_text: Optional[str] = None,
-        parent_entry_id: Optional[str] = None,
-        limit: int = 50
-    ) -> List[WorkbookEntry]:
+        form_type: FormType | None = None,
+        session_id: str | None = None,
+        tags: list[str] | None = None,
+        search_text: str | None = None,
+        parent_entry_id: str | None = None,
+        limit: int = 50,
+    ) -> list[WorkbookEntry]:
         """
         Search for workbook entries.
 
@@ -425,7 +401,8 @@ class ClassificationWorkbook:
         params.append(limit)
 
         try:
-            results = self.database.connection.execute(f"""
+            results = self.database.connection.execute(
+                f"""
                 SELECT entry_id, form_type, label, content, metadata,
                        created_at, session_id, parent_entry_id, tags,
                        search_text, confidence_score
@@ -433,16 +410,15 @@ class ClassificationWorkbook:
                 WHERE {where_clause}
                 ORDER BY created_at DESC
                 LIMIT ?
-            """, params).fetchall()
+            """,
+                params,
+            ).fetchall()
 
             entries = [self._row_to_entry(row) for row in results]
 
             # Filter by tags in Python (JSON array handling)
             if tags:
-                entries = [
-                    e for e in entries
-                    if any(tag in e.tags for tag in tags)
-                ]
+                entries = [e for e in entries if any(tag in e.tags for tag in tags)]
 
             return entries
 
@@ -450,7 +426,7 @@ class ClassificationWorkbook:
             logger.error(f"Failed to search entries: {e}")
             return []
 
-    async def get_template(self, form_type: FormType) -> Dict[str, Any]:
+    async def get_template(self, form_type: FormType) -> dict[str, Any]:
         """
         Get a template for a specific form type.
 
@@ -465,7 +441,7 @@ class ClassificationWorkbook:
 
         return FORM_TEMPLATES.get(form_type, {}).copy()
 
-    def _extract_search_text(self, content: Dict[str, Any]) -> str:
+    def _extract_search_text(self, content: dict[str, Any]) -> str:
         """
         Extract searchable text from structured content.
 
@@ -485,9 +461,19 @@ class ClassificationWorkbook:
                     extract_text(item)
             elif isinstance(obj, dict):
                 for key, value in obj.items():
-                    if key in ["description", "reasoning", "synthesis", "conclusion",
-                              "recommendation", "notes", "findings", "analysis",
-                              "business_description", "primary_activity", "rationale"]:
+                    if key in [
+                        "description",
+                        "reasoning",
+                        "synthesis",
+                        "conclusion",
+                        "recommendation",
+                        "notes",
+                        "findings",
+                        "analysis",
+                        "business_description",
+                        "primary_activity",
+                        "rationale",
+                    ]:
                         extract_text(value)
 
         extract_text(content)
@@ -508,5 +494,5 @@ class ClassificationWorkbook:
             parent_entry_id=row[7],
             tags=json.loads(row[8]) if row[8] else [],
             search_text=row[9],
-            confidence_score=row[10]
+            confidence_score=row[10],
         )

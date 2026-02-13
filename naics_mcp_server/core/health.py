@@ -9,19 +9,19 @@ Provides health check endpoints for monitoring and container orchestration:
 Designed for Kubernetes probes, Docker health checks, and monitoring systems.
 """
 
-import time
-import asyncio
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Dict, List, Optional, Any
 import logging
+import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class HealthStatus(str, Enum):
     """Health check status levels."""
+
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
@@ -29,6 +29,7 @@ class HealthStatus(str, Enum):
 
 class ComponentStatus(str, Enum):
     """Individual component status."""
+
     READY = "ready"
     PARTIAL = "partial"
     NOT_READY = "not_ready"
@@ -38,13 +39,14 @@ class ComponentStatus(str, Enum):
 @dataclass
 class ComponentHealth:
     """Health status for a single component."""
+
     name: str
     status: ComponentStatus
-    message: Optional[str] = None
-    latency_ms: Optional[float] = None
-    details: Dict[str, Any] = field(default_factory=dict)
+    message: str | None = None
+    latency_ms: float | None = None
+    details: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
             "status": self.status.value,
@@ -61,12 +63,13 @@ class ComponentHealth:
 @dataclass
 class HealthCheckResult:
     """Complete health check result."""
+
     status: HealthStatus
     timestamp: datetime
     version: str
     uptime_seconds: float
-    components: Dict[str, ComponentHealth] = field(default_factory=dict)
-    issues: List[str] = field(default_factory=list)
+    components: dict[str, ComponentHealth] = field(default_factory=dict)
+    issues: list[str] = field(default_factory=list)
 
     @property
     def is_healthy(self) -> bool:
@@ -78,7 +81,7 @@ class HealthCheckResult:
         """True if server can handle requests (healthy or degraded)."""
         return self.status in (HealthStatus.HEALTHY, HealthStatus.DEGRADED)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
             "status": self.status.value,
@@ -86,18 +89,14 @@ class HealthCheckResult:
             "version": self.version,
             "uptime_seconds": round(self.uptime_seconds, 1),
             "components": {
-                name: component.to_dict()
-                for name, component in self.components.items()
+                name: component.to_dict() for name, component in self.components.items()
             },
         }
         if self.issues:
             result["issues"] = self.issues
 
         # Add summary
-        ready_count = sum(
-            1 for c in self.components.values()
-            if c.status == ComponentStatus.READY
-        )
+        ready_count = sum(1 for c in self.components.values() if c.status == ComponentStatus.READY)
         result["summary"] = f"{ready_count}/{len(self.components)} components ready"
 
         return result
@@ -229,18 +228,11 @@ class HealthChecker:
             issues.append("Cross-reference data not loaded")
 
         # Determine overall status
-        error_count = sum(
-            1 for c in components.values()
-            if c.status == ComponentStatus.ERROR
-        )
+        error_count = sum(1 for c in components.values() if c.status == ComponentStatus.ERROR)
         not_ready_count = sum(
-            1 for c in components.values()
-            if c.status == ComponentStatus.NOT_READY
+            1 for c in components.values() if c.status == ComponentStatus.NOT_READY
         )
-        partial_count = sum(
-            1 for c in components.values()
-            if c.status == ComponentStatus.PARTIAL
-        )
+        partial_count = sum(1 for c in components.values() if c.status == ComponentStatus.PARTIAL)
 
         if error_count > 0:
             status = HealthStatus.UNHEALTHY
@@ -253,7 +245,7 @@ class HealthChecker:
 
         return HealthCheckResult(
             status=status,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             version=self.version,
             uptime_seconds=self.uptime_seconds,
             components=components,
@@ -476,7 +468,8 @@ class HealthChecker:
 
 # Convenience functions for simple health checks
 
-async def liveness_check() -> Dict[str, Any]:
+
+async def liveness_check() -> dict[str, Any]:
     """
     Simple liveness check.
 
@@ -485,11 +478,11 @@ async def liveness_check() -> Dict[str, Any]:
     """
     return {
         "status": "alive",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
-async def readiness_check(checker: HealthChecker) -> Dict[str, Any]:
+async def readiness_check(checker: HealthChecker) -> dict[str, Any]:
     """
     Readiness check.
 
@@ -505,6 +498,6 @@ async def readiness_check(checker: HealthChecker) -> Dict[str, Any]:
     is_ready = await checker.check_readiness()
     return {
         "status": "ready" if is_ready else "not_ready",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "uptime_seconds": round(checker.uptime_seconds, 1),
     }

@@ -4,16 +4,17 @@ Unit tests for health check module.
 Tests health check functionality for liveness, readiness, and detailed diagnostics.
 """
 
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from datetime import datetime, timezone
-from unittest.mock import Mock, AsyncMock, MagicMock, patch
 
 from naics_mcp_server.core.health import (
+    ComponentHealth,
+    ComponentStatus,
     HealthChecker,
     HealthCheckResult,
     HealthStatus,
-    ComponentStatus,
-    ComponentHealth,
     liveness_check,
     readiness_check,
 )
@@ -45,10 +46,7 @@ class TestComponentHealth:
 
     def test_basic_creation(self):
         """Should create with required fields."""
-        health = ComponentHealth(
-            name="database",
-            status=ComponentStatus.READY
-        )
+        health = ComponentHealth(name="database", status=ComponentStatus.READY)
         assert health.name == "database"
         assert health.status == ComponentStatus.READY
         assert health.message is None
@@ -62,7 +60,7 @@ class TestComponentHealth:
             status=ComponentStatus.READY,
             message="Connected",
             latency_ms=5.5,
-            details={"total_codes": 1000}
+            details={"total_codes": 1000},
         )
         assert health.message == "Connected"
         assert health.latency_ms == 5.5
@@ -70,10 +68,7 @@ class TestComponentHealth:
 
     def test_to_dict_minimal(self):
         """to_dict should include status."""
-        health = ComponentHealth(
-            name="database",
-            status=ComponentStatus.READY
-        )
+        health = ComponentHealth(name="database", status=ComponentStatus.READY)
         result = health.to_dict()
         assert result["status"] == "ready"
         assert "message" not in result
@@ -86,7 +81,7 @@ class TestComponentHealth:
             status=ComponentStatus.ERROR,
             message="Connection failed",
             latency_ms=100.5,
-            details={"retry_count": 3}
+            details={"retry_count": 3},
         )
         result = health.to_dict()
         assert result["status"] == "error"
@@ -102,9 +97,9 @@ class TestHealthCheckResult:
         """Should create with required fields."""
         result = HealthCheckResult(
             status=HealthStatus.HEALTHY,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             version="0.1.0",
-            uptime_seconds=120.5
+            uptime_seconds=120.5,
         )
         assert result.status == HealthStatus.HEALTHY
         assert result.version == "0.1.0"
@@ -116,21 +111,21 @@ class TestHealthCheckResult:
         """is_healthy should return True only for healthy status."""
         healthy = HealthCheckResult(
             status=HealthStatus.HEALTHY,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             version="0.1.0",
-            uptime_seconds=0
+            uptime_seconds=0,
         )
         degraded = HealthCheckResult(
             status=HealthStatus.DEGRADED,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             version="0.1.0",
-            uptime_seconds=0
+            uptime_seconds=0,
         )
         unhealthy = HealthCheckResult(
             status=HealthStatus.UNHEALTHY,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             version="0.1.0",
-            uptime_seconds=0
+            uptime_seconds=0,
         )
 
         assert healthy.is_healthy is True
@@ -141,21 +136,21 @@ class TestHealthCheckResult:
         """is_ready should return True for healthy or degraded."""
         healthy = HealthCheckResult(
             status=HealthStatus.HEALTHY,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             version="0.1.0",
-            uptime_seconds=0
+            uptime_seconds=0,
         )
         degraded = HealthCheckResult(
             status=HealthStatus.DEGRADED,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             version="0.1.0",
-            uptime_seconds=0
+            uptime_seconds=0,
         )
         unhealthy = HealthCheckResult(
             status=HealthStatus.UNHEALTHY,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             version="0.1.0",
-            uptime_seconds=0
+            uptime_seconds=0,
         )
 
         assert healthy.is_ready is True
@@ -166,16 +161,11 @@ class TestHealthCheckResult:
         """to_dict should serialize all fields."""
         result = HealthCheckResult(
             status=HealthStatus.DEGRADED,
-            timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
             version="0.1.0",
             uptime_seconds=3600.5,
-            components={
-                "database": ComponentHealth(
-                    name="database",
-                    status=ComponentStatus.READY
-                )
-            },
-            issues=["Some warning"]
+            components={"database": ComponentHealth(name="database", status=ComponentStatus.READY)},
+            issues=["Some warning"],
         )
 
         d = result.to_dict()
@@ -206,10 +196,7 @@ class TestHealthChecker:
         search_engine = Mock()
 
         checker = HealthChecker(
-            database=db,
-            embedder=embedder,
-            search_engine=search_engine,
-            version="1.2.3"
+            database=db, embedder=embedder, search_engine=search_engine, version="1.2.3"
         )
 
         assert checker.database is db
@@ -312,11 +299,13 @@ class TestHealthCheckerDatabaseCheck:
         """Should return READY when database has data."""
         db = Mock()
         db.is_connected = True
-        db.get_statistics = AsyncMock(return_value={
-            "total_codes": 2125,
-            "total_index_terms": 20000,
-            "total_cross_references": 4500
-        })
+        db.get_statistics = AsyncMock(
+            return_value={
+                "total_codes": 2125,
+                "total_index_terms": 20000,
+                "total_cross_references": 4500,
+            }
+        )
 
         checker = HealthChecker(database=db)
         result = await checker._check_database()
@@ -425,12 +414,14 @@ class TestHealthCheckerFullCheck:
         # Mock database
         db = Mock()
         db.is_connected = True
-        db.get_statistics = AsyncMock(return_value={
-            "total_codes": 2125,
-            "total_index_terms": 20000,
-            "total_cross_references": 4500,
-            "embedding_coverage": {"coverage_percent": 100}
-        })
+        db.get_statistics = AsyncMock(
+            return_value={
+                "total_codes": 2125,
+                "total_index_terms": 20000,
+                "total_cross_references": 4500,
+                "embedding_coverage": {"coverage_percent": 100},
+            }
+        )
         db.connection.execute.return_value.fetchone.return_value = (4000,)
 
         # Mock embedder
@@ -446,10 +437,7 @@ class TestHealthCheckerFullCheck:
         search_engine.search_cache.get_stats.return_value = {"size": 20, "hits": 10}
 
         checker = HealthChecker(
-            database=db,
-            embedder=embedder,
-            search_engine=search_engine,
-            version="0.1.0"
+            database=db, embedder=embedder, search_engine=search_engine, version="0.1.0"
         )
 
         result = await checker.check_health()
@@ -468,12 +456,14 @@ class TestHealthCheckerFullCheck:
         # Mock database - ready
         db = Mock()
         db.is_connected = True
-        db.get_statistics = AsyncMock(return_value={
-            "total_codes": 2125,
-            "total_index_terms": 20000,
-            "total_cross_references": 0,  # No cross-refs
-            "embedding_coverage": {"coverage_percent": 50}  # Partial
-        })
+        db.get_statistics = AsyncMock(
+            return_value={
+                "total_codes": 2125,
+                "total_index_terms": 20000,
+                "total_cross_references": 0,  # No cross-refs
+                "embedding_coverage": {"coverage_percent": 50},  # Partial
+            }
+        )
         db.connection.execute.return_value.fetchone.return_value = (0,)
 
         # Mock embedder - ready
@@ -488,11 +478,7 @@ class TestHealthCheckerFullCheck:
         search_engine.embedding_cache.get_stats.return_value = {"size": 100, "hits": 50}
         search_engine.search_cache.get_stats.return_value = {"size": 20, "hits": 10}
 
-        checker = HealthChecker(
-            database=db,
-            embedder=embedder,
-            search_engine=search_engine
-        )
+        checker = HealthChecker(database=db, embedder=embedder, search_engine=search_engine)
 
         result = await checker.check_health()
 

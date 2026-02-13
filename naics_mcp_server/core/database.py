@@ -5,23 +5,21 @@ Clear, purposeful database operations with explicit error handling.
 Adapted for NAICS with 5-level hierarchy, cross-references, and index terms.
 """
 
-import duckdb
-import time
-from pathlib import Path
-from typing import List, Optional, Dict, Any
-from contextlib import asynccontextmanager
 import logging
+import time
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
 
-from ..models.naics_models import NAICSCode, NAICSLevel, CrossReference, IndexTerm
-from ..models.search_models import SearchStrategy
+import duckdb
+
+from ..models.naics_models import CrossReference, IndexTerm, NAICSCode, NAICSLevel
 from .errors import (
-    DatabaseError,
-    ConnectionError as DBConnectionError,
-    QueryError,
-    NotFoundError,
-    retry_sync,
     DATABASE_RETRY,
-    RetryConfig,
+    DatabaseError,
+)
+from .errors import (
+    ConnectionError as DBConnectionError,
 )
 
 logger = logging.getLogger(__name__)
@@ -177,7 +175,7 @@ class NAICSDatabase:
         raise DBConnectionError(
             message=f"Failed to connect to database after {max_retries} attempts",
             details={"database_path": str(self.database_path)},
-            cause=last_error
+            cause=last_error,
         )
 
     def _initialize_schema(self) -> None:
@@ -209,7 +207,7 @@ class NAICSDatabase:
             ).fetchall()
             column_names = [c[0] for c in cols]
 
-            if 'excluded_activity' not in column_names:
+            if "excluded_activity" not in column_names:
                 logger.info("Migrating naics_cross_references: adding excluded_activity column")
                 self.connection.execute(
                     "ALTER TABLE naics_cross_references ADD COLUMN excluded_activity VARCHAR"
@@ -230,10 +228,10 @@ class NAICSDatabase:
             raise DatabaseError(
                 message="Database not connected",
                 retryable=True,
-                details={"database_path": str(self.database_path)}
+                details={"database_path": str(self.database_path)},
             )
 
-    async def get_by_code(self, node_code: str) -> Optional[NAICSCode]:
+    async def get_by_code(self, node_code: str) -> NAICSCode | None:
         """
         Retrieve a specific NAICS code.
 
@@ -263,10 +261,8 @@ class NAICSDatabase:
             return None
 
     async def search_by_text(
-        self,
-        search_terms: List[str],
-        limit: int = 100
-    ) -> List[Dict[str, Any]]:
+        self, search_terms: list[str], limit: int = 100
+    ) -> list[dict[str, Any]]:
         """
         Search for NAICS codes by text matching.
 
@@ -309,11 +305,7 @@ class NAICSDatabase:
             logger.error(f"Text search failed: {e}")
             return []
 
-    async def search_index_terms(
-        self,
-        search_text: str,
-        limit: int = 50
-    ) -> List[IndexTerm]:
+    async def search_index_terms(self, search_text: str, limit: int = 50) -> list[IndexTerm]:
         """
         Search the official NAICS index terms.
 
@@ -340,10 +332,7 @@ class NAICSDatabase:
 
             return [
                 IndexTerm(
-                    term_id=row[0],
-                    naics_code=row[1],
-                    index_term=row[2],
-                    term_normalized=row[3]
+                    term_id=row[0], naics_code=row[1], index_term=row[2], term_normalized=row[3]
                 )
                 for row in results
             ]
@@ -352,7 +341,7 @@ class NAICSDatabase:
             logger.error(f"Index term search failed: {e}")
             return []
 
-    async def get_index_terms_for_code(self, naics_code: str) -> List[IndexTerm]:
+    async def get_index_terms_for_code(self, naics_code: str) -> list[IndexTerm]:
         """
         Get all index terms for a specific NAICS code.
 
@@ -376,10 +365,7 @@ class NAICSDatabase:
 
             return [
                 IndexTerm(
-                    term_id=row[0],
-                    naics_code=row[1],
-                    index_term=row[2],
-                    term_normalized=row[3]
+                    term_id=row[0], naics_code=row[1], index_term=row[2], term_normalized=row[3]
                 )
                 for row in results
             ]
@@ -388,7 +374,7 @@ class NAICSDatabase:
             logger.error(f"Failed to get index terms for {naics_code}: {e}")
             return []
 
-    async def get_cross_references(self, source_code: str) -> List[CrossReference]:
+    async def get_cross_references(self, source_code: str) -> list[CrossReference]:
         """
         Get cross-references for a NAICS code.
 
@@ -420,7 +406,7 @@ class NAICSDatabase:
                     reference_type=row[2],
                     reference_text=row[3],
                     target_code=row[4],
-                    excluded_activity=row[5]
+                    excluded_activity=row[5],
                 )
                 for row in results
             ]
@@ -430,10 +416,8 @@ class NAICSDatabase:
             return []
 
     async def search_cross_references(
-        self,
-        search_text: str,
-        limit: int = 20
-    ) -> List[CrossReference]:
+        self, search_text: str, limit: int = 20
+    ) -> list[CrossReference]:
         """
         Search cross-references by activity text.
 
@@ -467,7 +451,7 @@ class NAICSDatabase:
                     reference_type=row[2],
                     reference_text=row[3],
                     target_code=row[4],
-                    excluded_activity=row[5]
+                    excluded_activity=row[5],
                 )
                 for row in results
             ]
@@ -476,7 +460,7 @@ class NAICSDatabase:
             logger.error(f"Cross-reference search failed: {e}")
             return []
 
-    async def get_hierarchy(self, node_code: str) -> List[NAICSCode]:
+    async def get_hierarchy(self, node_code: str) -> list[NAICSCode]:
         """
         Get the complete hierarchy for a given code.
 
@@ -522,7 +506,7 @@ class NAICSDatabase:
             logger.error(f"Failed to get hierarchy for {node_code}: {e}")
             return []
 
-    async def get_children(self, parent_code: str) -> List[NAICSCode]:
+    async def get_children(self, parent_code: str) -> list[NAICSCode]:
         """
         Get immediate children of a NAICS code.
 
@@ -575,7 +559,7 @@ class NAICSDatabase:
             logger.error(f"Failed to get children for {parent_code}: {e}")
             return []
 
-    async def get_siblings(self, node_code: str, limit: int = 10) -> List[NAICSCode]:
+    async def get_siblings(self, node_code: str, limit: int = 10) -> list[NAICSCode]:
         """
         Get sibling codes at the same hierarchical level.
 
@@ -622,8 +606,7 @@ class NAICSDatabase:
             """
 
             results = self.connection.execute(
-                query,
-                [code.level.value, parent_value, node_code, limit]
+                query, [code.level.value, parent_value, node_code, limit]
             ).fetchall()
 
             return [self._row_to_naics_code(row) for row in results]
@@ -632,7 +615,7 @@ class NAICSDatabase:
             logger.error(f"Failed to get siblings for {node_code}: {e}")
             return []
 
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """
         Get database statistics for monitoring and debugging.
 
@@ -662,9 +645,7 @@ class NAICSDatabase:
             stats["counts_by_level"] = {level: count for level, count in counts}
 
             # Total records
-            total = self.connection.execute(
-                "SELECT COUNT(*) FROM naics_nodes"
-            ).fetchone()[0]
+            total = self.connection.execute("SELECT COUNT(*) FROM naics_nodes").fetchone()[0]
             stats["total_codes"] = total
 
             # Index terms count
@@ -673,7 +654,7 @@ class NAICSDatabase:
                     "SELECT COUNT(*) FROM naics_index_terms"
                 ).fetchone()[0]
                 stats["total_index_terms"] = index_count
-            except:
+            except Exception:
                 stats["total_index_terms"] = 0
 
             # Cross-references count
@@ -682,7 +663,7 @@ class NAICSDatabase:
                     "SELECT COUNT(*) FROM naics_cross_references"
                 ).fetchone()[0]
                 stats["total_cross_references"] = crossref_count
-            except:
+            except Exception:
                 stats["total_cross_references"] = 0
 
             # Check embedding coverage
@@ -694,13 +675,13 @@ class NAICSDatabase:
                 stats["embedding_coverage"] = {
                     "with_embeddings": with_embeddings,
                     "without_embeddings": total - with_embeddings,
-                    "coverage_percent": (with_embeddings / total * 100) if total > 0 else 0
+                    "coverage_percent": (with_embeddings / total * 100) if total > 0 else 0,
                 }
-            except:
+            except Exception:
                 stats["embedding_coverage"] = {
                     "with_embeddings": 0,
                     "without_embeddings": total,
-                    "coverage_percent": 0
+                    "coverage_percent": 0,
                 }
 
             return stats
@@ -729,27 +710,29 @@ class NAICSDatabase:
             naics_industry_code=row[7],
             raw_embedding_text=row[8],
             change_indicator=row[9] if len(row) > 9 else None,
-            is_trilateral=row[10] if len(row) > 10 else True
+            is_trilateral=row[10] if len(row) > 10 else True,
         )
 
-    def _format_results(self, results: List[tuple]) -> List[Dict[str, Any]]:
+    def _format_results(self, results: list[tuple]) -> list[dict[str, Any]]:
         """
         Format database results into dictionaries.
         """
         formatted = []
 
         for row in results:
-            formatted.append({
-                "node_code": row[0],
-                "level": row[1],
-                "title": row[2],
-                "description": row[3],
-                "sector_code": row[4],
-                "subsector_code": row[5],
-                "industry_group_code": row[6],
-                "naics_industry_code": row[7],
-                "raw_embedding_text": row[8],
-            })
+            formatted.append(
+                {
+                    "node_code": row[0],
+                    "level": row[1],
+                    "title": row[2],
+                    "description": row[3],
+                    "sector_code": row[4],
+                    "subsector_code": row[5],
+                    "industry_group_code": row[6],
+                    "naics_industry_code": row[7],
+                    "raw_embedding_text": row[8],
+                }
+            )
 
         return formatted
 

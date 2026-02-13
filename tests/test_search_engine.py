@@ -4,22 +4,28 @@ Unit tests for NAICSSearchEngine.
 Tests search operations, confidence scoring, caching, and result generation.
 """
 
-import pytest
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
-import numpy as np
 
-from naics_mcp_server.core.search_engine import (
-    NAICSSearchEngine, ConfidenceCalculator, SearchCache,
-    generate_search_guidance
-)
-from naics_mcp_server.core.database import NAICSDatabase
-from naics_mcp_server.core.embeddings import TextEmbedder
+import numpy as np
+import pytest
+
 from naics_mcp_server.config import SearchConfig
-from naics_mcp_server.models.naics_models import NAICSCode, NAICSLevel
+from naics_mcp_server.core.embeddings import TextEmbedder
+from naics_mcp_server.core.search_engine import (
+    ConfidenceCalculator,
+    NAICSSearchEngine,
+    SearchCache,
+    generate_search_guidance,
+)
+from naics_mcp_server.models.naics_models import NAICSLevel
 from naics_mcp_server.models.search_models import (
-    NAICSMatch, SearchResults, SearchStrategy,
-    QueryTerms, QueryMetadata, ConfidenceScore
+    ConfidenceScore,
+    NAICSMatch,
+    QueryMetadata,
+    QueryTerms,
+    SearchResults,
+    SearchStrategy,
 )
 
 
@@ -37,7 +43,7 @@ class TestConfidenceCalculator:
             lexical_score=0.6,
             index_term_score=0.5,
             specificity_score=1.0,
-            cross_ref_factor=1.0
+            cross_ref_factor=1.0,
         )
 
         assert isinstance(confidence, ConfidenceScore)
@@ -54,7 +60,7 @@ class TestConfidenceCalculator:
             lexical_score=0.0,
             index_term_score=0.0,
             specificity_score=1.0,
-            cross_ref_factor=1.0
+            cross_ref_factor=1.0,
         )
 
         # Semantic weight is 0.40, so 0.95 * 0.40 = 0.38
@@ -64,15 +70,13 @@ class TestConfidenceCalculator:
     def test_calculate_cross_ref_penalty(self, calculator):
         """Cross-reference factor < 1.0 should penalize score."""
         confidence_no_penalty = calculator.calculate(
-            semantic_score=0.8,
-            lexical_score=0.6,
-            cross_ref_factor=1.0
+            semantic_score=0.8, lexical_score=0.6, cross_ref_factor=1.0
         )
 
         confidence_with_penalty = calculator.calculate(
             semantic_score=0.8,
             lexical_score=0.6,
-            cross_ref_factor=0.7  # 30% penalty
+            cross_ref_factor=0.7,  # 30% penalty
         )
 
         assert confidence_with_penalty.overall < confidence_no_penalty.overall
@@ -85,7 +89,7 @@ class TestConfidenceCalculator:
             lexical_score=1.0,
             index_term_score=1.0,
             specificity_score=1.0,
-            cross_ref_factor=1.2  # Boost factor
+            cross_ref_factor=1.2,  # Boost factor
         )
         assert confidence_high.overall <= 1.0
 
@@ -95,7 +99,7 @@ class TestConfidenceCalculator:
             lexical_score=0.0,
             index_term_score=0.0,
             specificity_score=0.0,
-            cross_ref_factor=0.0
+            cross_ref_factor=0.0,
         )
         assert confidence_low.overall >= 0.0
 
@@ -103,14 +107,20 @@ class TestConfidenceCalculator:
         """Should weight semantic > lexical > index_term = specificity > cross_ref."""
         # Only semantic (with neutral cross_ref to avoid penalty)
         semantic_only = calculator.calculate(
-            semantic_score=1.0, lexical_score=0.0,
-            index_term_score=0.0, specificity_score=0.0, cross_ref_factor=1.0
+            semantic_score=1.0,
+            lexical_score=0.0,
+            index_term_score=0.0,
+            specificity_score=0.0,
+            cross_ref_factor=1.0,
         )
 
         # Only lexical (with neutral cross_ref to avoid penalty)
         lexical_only = calculator.calculate(
-            semantic_score=0.0, lexical_score=1.0,
-            index_term_score=0.0, specificity_score=0.0, cross_ref_factor=1.0
+            semantic_score=0.0,
+            lexical_score=1.0,
+            index_term_score=0.0,
+            specificity_score=0.0,
+            cross_ref_factor=1.0,
         )
 
         # Semantic should have more impact (0.40 weight vs 0.20 weight)
@@ -130,11 +140,15 @@ class TestSearchCache:
         match = NAICSMatch(
             code=sample_naics_code,
             confidence=ConfidenceScore(
-                semantic=0.8, lexical=0.6, index_term=0.0,
-                specificity=1.0, cross_ref=0.0, overall=0.75
+                semantic=0.8,
+                lexical=0.6,
+                index_term=0.0,
+                specificity=1.0,
+                cross_ref=0.0,
+                overall=0.75,
             ),
             match_reasons=["Test match"],
-            rank=1
+            rank=1,
         )
 
         return SearchResults(
@@ -145,8 +159,8 @@ class TestSearchCache:
                 strategy_used="hybrid",
                 was_expanded=False,
                 processing_time_ms=100,
-                total_candidates_considered=1
-            )
+                total_candidates_considered=1,
+            ),
         )
 
     def test_cache_put_and_get(self, cache, sample_results):
@@ -255,8 +269,8 @@ class TestGenerateSearchGuidance:
                 strategy_used="hybrid",
                 was_expanded=False,
                 processing_time_ms=100,
-                total_candidates_considered=0
-            )
+                total_candidates_considered=0,
+            ),
         )
 
     @pytest.fixture
@@ -265,12 +279,16 @@ class TestGenerateSearchGuidance:
         match = NAICSMatch(
             code=sample_naics_code,
             confidence=ConfidenceScore(
-                semantic=0.9, lexical=0.8, index_term=0.5,
-                specificity=1.0, cross_ref=0.0, overall=0.85
+                semantic=0.9,
+                lexical=0.8,
+                index_term=0.5,
+                specificity=1.0,
+                cross_ref=0.0,
+                overall=0.85,
             ),
             match_reasons=["Semantic similarity"],
             matched_index_terms=["Dog food manufacturing"],
-            rank=1
+            rank=1,
         )
 
         return SearchResults(
@@ -281,8 +299,8 @@ class TestGenerateSearchGuidance:
                 strategy_used="hybrid",
                 was_expanded=False,
                 processing_time_ms=100,
-                total_candidates_considered=1
-            )
+                total_candidates_considered=1,
+            ),
         )
 
     def test_guidance_for_no_results(self, empty_results):
@@ -311,11 +329,15 @@ class TestGenerateSearchGuidance:
             match = NAICSMatch(
                 code=sample_naics_code,
                 confidence=ConfidenceScore(
-                    semantic=conf, lexical=0.0, index_term=0.0,
-                    specificity=1.0, cross_ref=0.0, overall=conf
+                    semantic=conf,
+                    lexical=0.0,
+                    index_term=0.0,
+                    specificity=1.0,
+                    cross_ref=0.0,
+                    overall=conf,
                 ),
                 match_reasons=["Test"],
-                rank=i + 1
+                rank=i + 1,
             )
             matches.append(match)
 
@@ -327,8 +349,8 @@ class TestGenerateSearchGuidance:
                 strategy_used="hybrid",
                 was_expanded=False,
                 processing_time_ms=100,
-                total_candidates_considered=3
-            )
+                total_candidates_considered=3,
+            ),
         )
 
         guidance = generate_search_guidance(results)
@@ -354,17 +376,14 @@ class TestNAICSSearchEngine:
         """Create search engine with populated database."""
         config = SearchConfig()
         engine = NAICSSearchEngine(
-            database=populated_database,
-            embedder=mock_embedder,
-            config=config
+            database=populated_database, embedder=mock_embedder, config=config
         )
         return engine
 
     def test_calculate_lexical_score_perfect_match(self, search_engine):
         """Perfect word overlap should give high score."""
         score = search_engine._calculate_lexical_score(
-            "dog food manufacturing",
-            "dog food manufacturing"
+            "dog food manufacturing", "dog food manufacturing"
         )
 
         assert score == 1.0
@@ -372,27 +391,20 @@ class TestNAICSSearchEngine:
     def test_calculate_lexical_score_partial_match(self, search_engine):
         """Partial word overlap should give moderate score."""
         score = search_engine._calculate_lexical_score(
-            "dog food",
-            "dog food manufacturing from ingredients"
+            "dog food", "dog food manufacturing from ingredients"
         )
 
         assert 0.0 < score < 1.0
 
     def test_calculate_lexical_score_no_match(self, search_engine):
         """No word overlap should give zero score."""
-        score = search_engine._calculate_lexical_score(
-            "dog food",
-            "beverage manufacturing"
-        )
+        score = search_engine._calculate_lexical_score("dog food", "beverage manufacturing")
 
         assert score == 0.0
 
     def test_calculate_lexical_score_empty_query(self, search_engine):
         """Empty query should give zero score."""
-        score = search_engine._calculate_lexical_score(
-            "",
-            "dog food manufacturing"
-        )
+        score = search_engine._calculate_lexical_score("", "dog food manufacturing")
 
         assert score == 0.0
 
@@ -414,7 +426,13 @@ class TestNAICSSearchEngine:
         naics_industry_score = search_engine._calculate_specificity_score(NAICSLevel.NAICS_INDUSTRY)
         national_score = search_engine._calculate_specificity_score(NAICSLevel.NATIONAL_INDUSTRY)
 
-        assert sector_score < subsector_score < industry_group_score < naics_industry_score < national_score
+        assert (
+            sector_score
+            < subsector_score
+            < industry_group_score
+            < naics_industry_score
+            < national_score
+        )
 
     @pytest.mark.asyncio
     async def test_lexical_search_finds_matches(self, search_engine):
@@ -435,18 +453,15 @@ class TestNAICSSearchEngine:
         matches = await search_engine._lexical_search("manufacturing", expanded_terms)
 
         assert all(isinstance(m, NAICSMatch) for m in matches)
-        assert all(hasattr(m, 'confidence') for m in matches)
-        assert all(hasattr(m, 'code') for m in matches)
+        assert all(hasattr(m, "confidence") for m in matches)
+        assert all(hasattr(m, "code") for m in matches)
 
     @pytest.mark.asyncio
     async def test_search_fallback_to_lexical(self, search_engine):
         """Search should fall back to lexical when embeddings not ready."""
         search_engine.embeddings_ready = False
 
-        results = await search_engine.search(
-            "dog food",
-            strategy=SearchStrategy.SEMANTIC
-        )
+        results = await search_engine.search("dog food", strategy=SearchStrategy.SEMANTIC)
 
         # Should still return results via lexical fallback
         assert isinstance(results, SearchResults)
@@ -458,16 +473,10 @@ class TestNAICSSearchEngine:
         search_engine.embeddings_ready = False
 
         # First search
-        results1 = await search_engine.search(
-            "dog food",
-            strategy=SearchStrategy.LEXICAL
-        )
+        _results1 = await search_engine.search("dog food", strategy=SearchStrategy.LEXICAL)
 
         # Second identical search
-        results2 = await search_engine.search(
-            "dog food",
-            strategy=SearchStrategy.LEXICAL
-        )
+        _results2 = await search_engine.search("dog food", strategy=SearchStrategy.LEXICAL)
 
         # Cache should have been used
         cache_stats = search_engine.search_cache.get_stats()
@@ -479,9 +488,7 @@ class TestNAICSSearchEngine:
         search_engine.embeddings_ready = False
 
         results = await search_engine.search(
-            "manufacturing",
-            strategy=SearchStrategy.LEXICAL,
-            limit=3
+            "manufacturing", strategy=SearchStrategy.LEXICAL, limit=3
         )
 
         assert len(results.matches) <= 3
@@ -494,7 +501,7 @@ class TestNAICSSearchEngine:
         results = await search_engine.search(
             "manufacturing",
             strategy=SearchStrategy.LEXICAL,
-            min_confidence=0.0  # Low threshold
+            min_confidence=0.0,  # Low threshold
         )
 
         low_threshold_count = len(results.matches)
@@ -502,7 +509,7 @@ class TestNAICSSearchEngine:
         results = await search_engine.search(
             "manufacturing",
             strategy=SearchStrategy.LEXICAL,
-            min_confidence=0.5  # Higher threshold
+            min_confidence=0.5,  # Higher threshold
         )
 
         high_threshold_count = len(results.matches)
@@ -515,9 +522,7 @@ class TestNAICSSearchEngine:
         search_engine.embeddings_ready = False
 
         results = await search_engine.search(
-            "food manufacturing",
-            strategy=SearchStrategy.LEXICAL,
-            limit=5
+            "food manufacturing", strategy=SearchStrategy.LEXICAL, limit=5
         )
 
         if len(results.matches) >= 2:
@@ -534,10 +539,7 @@ class TestNAICSSearchEngine:
         """Search results should include query metadata."""
         search_engine.embeddings_ready = False
 
-        results = await search_engine.search(
-            "dog food",
-            strategy=SearchStrategy.LEXICAL
-        )
+        results = await search_engine.search("dog food", strategy=SearchStrategy.LEXICAL)
 
         assert results.query_metadata is not None
         assert results.query_metadata.original_query == "dog food"
@@ -561,9 +563,7 @@ class TestSearchEngineWithEmbeddings:
         """Create search engine with embeddings ready."""
         config = SearchConfig()
         engine = NAICSSearchEngine(
-            database=populated_database,
-            embedder=mock_embedder,
-            config=config
+            database=populated_database, embedder=mock_embedder, config=config
         )
         engine.embeddings_ready = True
 
@@ -588,13 +588,12 @@ class TestSearchEngineWithEmbeddings:
 
         # Patch the semantic search to avoid actual embedding operations
         with patch.object(
-            search_engine_with_embeddings, '_semantic_search',
-            new_callable=AsyncMock
+            search_engine_with_embeddings, "_semantic_search", new_callable=AsyncMock
         ) as mock_semantic:
             # Return a match from semantic search
             mock_semantic.return_value = []
 
-            matches = await search_engine_with_embeddings._hybrid_search(
+            _matches = await search_engine_with_embeddings._hybrid_search(
                 "dog food", expanded_terms, index_term_codes
             )
 
@@ -616,9 +615,7 @@ class TestSearchEngineEdgeCases:
     def search_engine(self, populated_database, mock_embedder):
         config = SearchConfig()
         engine = NAICSSearchEngine(
-            database=populated_database,
-            embedder=mock_embedder,
-            config=config
+            database=populated_database, embedder=mock_embedder, config=config
         )
         engine.embeddings_ready = False
         return engine
@@ -626,20 +623,14 @@ class TestSearchEngineEdgeCases:
     @pytest.mark.asyncio
     async def test_search_empty_query(self, search_engine):
         """Should handle empty query gracefully."""
-        results = await search_engine.search(
-            "",
-            strategy=SearchStrategy.LEXICAL
-        )
+        results = await search_engine.search("", strategy=SearchStrategy.LEXICAL)
 
         assert isinstance(results, SearchResults)
 
     @pytest.mark.asyncio
     async def test_search_whitespace_query(self, search_engine):
         """Should handle whitespace-only query."""
-        results = await search_engine.search(
-            "   ",
-            strategy=SearchStrategy.LEXICAL
-        )
+        results = await search_engine.search("   ", strategy=SearchStrategy.LEXICAL)
 
         assert isinstance(results, SearchResults)
 
@@ -647,8 +638,7 @@ class TestSearchEngineEdgeCases:
     async def test_search_special_characters(self, search_engine):
         """Should handle special characters in query."""
         results = await search_engine.search(
-            "dog & cat food (manufacturing)",
-            strategy=SearchStrategy.LEXICAL
+            "dog & cat food (manufacturing)", strategy=SearchStrategy.LEXICAL
         )
 
         assert isinstance(results, SearchResults)
@@ -656,10 +646,7 @@ class TestSearchEngineEdgeCases:
     @pytest.mark.asyncio
     async def test_search_unicode_query(self, search_engine):
         """Should handle Unicode characters in query."""
-        results = await search_engine.search(
-            "café manufacturing",
-            strategy=SearchStrategy.LEXICAL
-        )
+        results = await search_engine.search("café manufacturing", strategy=SearchStrategy.LEXICAL)
 
         assert isinstance(results, SearchResults)
 
@@ -668,9 +655,6 @@ class TestSearchEngineEdgeCases:
         """Should handle very long queries."""
         long_query = "manufacturing " * 100  # Very long query
 
-        results = await search_engine.search(
-            long_query,
-            strategy=SearchStrategy.LEXICAL
-        )
+        results = await search_engine.search(long_query, strategy=SearchStrategy.LEXICAL)
 
         assert isinstance(results, SearchResults)

@@ -4,9 +4,8 @@ Domain models for NAICS codes.
 Clear, purposeful data structures that represent the NAICS classification system.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Dict, Any
 
 
 class NAICSLevel(str, Enum):
@@ -17,10 +16,10 @@ class NAICSLevel(str, Enum):
     to specific national industries.
     """
 
-    SECTOR = "sector"                    # 2-digit (e.g., "31" - Manufacturing)
-    SUBSECTOR = "subsector"              # 3-digit (e.g., "311" - Food Manufacturing)
-    INDUSTRY_GROUP = "industry_group"    # 4-digit (e.g., "3111" - Animal Food)
-    NAICS_INDUSTRY = "naics_industry"    # 5-digit (e.g., "31111" - Animal Food Mfg)
+    SECTOR = "sector"  # 2-digit (e.g., "31" - Manufacturing)
+    SUBSECTOR = "subsector"  # 3-digit (e.g., "311" - Food Manufacturing)
+    INDUSTRY_GROUP = "industry_group"  # 4-digit (e.g., "3111" - Animal Food)
+    NAICS_INDUSTRY = "naics_industry"  # 5-digit (e.g., "31111" - Animal Food Mfg)
     NATIONAL_INDUSTRY = "national_industry"  # 6-digit (e.g., "311111" - Dog Food)
 
     @classmethod
@@ -32,7 +31,7 @@ class NAICSLevel(str, Enum):
             3: cls.SUBSECTOR,
             4: cls.INDUSTRY_GROUP,
             5: cls.NAICS_INDUSTRY,
-            6: cls.NATIONAL_INDUSTRY
+            6: cls.NATIONAL_INDUSTRY,
         }
         return level_map.get(length, cls.NATIONAL_INDUSTRY)
 
@@ -48,22 +47,22 @@ class NAICSCode:
     node_code: str
     title: str
     level: NAICSLevel
-    description: Optional[str] = None
+    description: str | None = None
 
     # Hierarchical relationships - explicit and clear
-    sector_code: Optional[str] = None
-    subsector_code: Optional[str] = None
-    industry_group_code: Optional[str] = None
-    naics_industry_code: Optional[str] = None
+    sector_code: str | None = None
+    subsector_code: str | None = None
+    industry_group_code: str | None = None
+    naics_industry_code: str | None = None
 
     # Text used for embedding generation
-    raw_embedding_text: Optional[str] = None
+    raw_embedding_text: str | None = None
 
     # Metadata
-    change_indicator: Optional[str] = None  # Change from 2017 version
+    change_indicator: str | None = None  # Change from 2017 version
     is_trilateral: bool = True  # US-Canada-Mexico common code
 
-    def get_hierarchy_path(self) -> List[str]:
+    def get_hierarchy_path(self) -> list[str]:
         """
         Returns the complete hierarchical path for this code.
 
@@ -86,7 +85,7 @@ class NAICSCode:
 
         return path
 
-    def get_parent_code(self) -> Optional[str]:
+    def get_parent_code(self) -> str | None:
         """Get the immediate parent code based on level."""
         if self.level == NAICSLevel.NATIONAL_INDUSTRY:
             return self.naics_industry_code
@@ -98,7 +97,7 @@ class NAICSCode:
             return self.sector_code
         return None
 
-    def get_hierarchy_descriptions(self) -> Dict[str, str]:
+    def get_hierarchy_descriptions(self) -> dict[str, str]:
         """
         Returns a dictionary of hierarchy levels to their descriptions.
 
@@ -107,9 +106,15 @@ class NAICSCode:
         return {
             "sector": f"Sector {self.sector_code}" if self.sector_code else None,
             "subsector": f"Subsector {self.subsector_code}" if self.subsector_code else None,
-            "industry_group": f"Industry Group {self.industry_group_code}" if self.industry_group_code else None,
-            "naics_industry": f"NAICS Industry {self.naics_industry_code}" if self.naics_industry_code else None,
-            "national_industry": f"National Industry {self.node_code}" if self.level == NAICSLevel.NATIONAL_INDUSTRY else None
+            "industry_group": f"Industry Group {self.industry_group_code}"
+            if self.industry_group_code
+            else None,
+            "naics_industry": f"NAICS Industry {self.naics_industry_code}"
+            if self.naics_industry_code
+            else None,
+            "national_industry": f"National Industry {self.node_code}"
+            if self.level == NAICSLevel.NATIONAL_INDUSTRY
+            else None,
         }
 
 
@@ -126,8 +131,8 @@ class CrossReference:
     source_code: str  # The code containing the cross-reference
     reference_type: str  # 'excludes', 'see_also', 'includes'
     reference_text: str  # The original text
-    target_code: Optional[str] = None  # Parsed target code if available
-    excluded_activity: Optional[str] = None  # What activity is excluded
+    target_code: str | None = None  # Parsed target code if available
+    excluded_activity: str | None = None  # What activity is excluded
 
     def __str__(self) -> str:
         if self.target_code:
@@ -146,7 +151,7 @@ class IndexTerm:
     term_id: int
     naics_code: str
     index_term: str
-    term_normalized: Optional[str] = None  # Lowercase for search
+    term_normalized: str | None = None  # Lowercase for search
 
     def __str__(self) -> str:
         return f"{self.index_term} → {self.naics_code}"
@@ -160,7 +165,7 @@ class SICCrosswalk:
 
     sic_code: str
     naics_code: str
-    relationship_type: Optional[str] = None  # 'direct', 'partial', 'split'
+    relationship_type: str | None = None  # 'direct', 'partial', 'split'
 
     def __str__(self) -> str:
         return f"SIC {self.sic_code} → NAICS {self.naics_code}"

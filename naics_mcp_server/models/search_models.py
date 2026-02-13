@@ -6,9 +6,9 @@ Clear, purposeful data structures for search operations and results.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import Any
 
-from .naics_models import NAICSCode, NAICSLevel, CrossReference
+from .naics_models import CrossReference, NAICSCode
 
 
 class SearchStrategy(str, Enum):
@@ -16,16 +16,16 @@ class SearchStrategy(str, Enum):
     Search strategies with clear purposes.
     """
 
-    HYBRID = "hybrid"      # Best of both worlds (default)
+    HYBRID = "hybrid"  # Best of both worlds (default)
     SEMANTIC = "semantic"  # Meaning-based search
-    LEXICAL = "lexical"    # Exact term matching
+    LEXICAL = "lexical"  # Exact term matching
 
     def to_user_friendly(self) -> str:
         """Convert to user-friendly description."""
         descriptions = {
             self.HYBRID: "best match (semantic + exact)",
             self.SEMANTIC: "meaning-based search",
-            self.LEXICAL: "exact term matching"
+            self.LEXICAL: "exact term matching",
         }
         return descriptions.get(self, self.value)
 
@@ -48,11 +48,11 @@ class ConfidenceScore:
     """
 
     semantic: float  # Semantic similarity (0-1)
-    lexical: float   # Exact term matching (0-1)
+    lexical: float  # Exact term matching (0-1)
     index_term: float  # Official index term match (0-1)
     specificity: float  # 6-digit > 2-digit preference (0-1)
     cross_ref: float  # Cross-reference relevance (0-1)
-    overall: float   # Weighted combination
+    overall: float  # Weighted combination
 
     def to_explanation(self) -> str:
         """
@@ -97,24 +97,24 @@ class NAICSMatch:
     confidence: ConfidenceScore
 
     # Why this result was returned
-    match_reasons: List[str] = field(default_factory=list)
+    match_reasons: list[str] = field(default_factory=list)
 
     # Distance metrics for transparency
     embedding_similarity: float = 0.0
     text_similarity: float = 0.0
 
     # Index term matches
-    matched_index_terms: List[str] = field(default_factory=list)
+    matched_index_terms: list[str] = field(default_factory=list)
 
     # Cross-reference context (critical for NAICS)
-    relevant_cross_refs: List[CrossReference] = field(default_factory=list)
-    exclusion_warnings: List[str] = field(default_factory=list)
+    relevant_cross_refs: list[CrossReference] = field(default_factory=list)
+    exclusion_warnings: list[str] = field(default_factory=list)
 
     # Additional context
-    hierarchy_path: List[str] = field(default_factory=list)
+    hierarchy_path: list[str] = field(default_factory=list)
     rank: int = 0  # Position in results
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "node_code": self.code.node_code,
@@ -126,7 +126,7 @@ class NAICSMatch:
             "hierarchy": self.hierarchy_path,
             "matched_index_terms": self.matched_index_terms,
             "exclusion_warnings": self.exclusion_warnings,
-            "rank": self.rank
+            "rank": self.rank,
         }
 
 
@@ -139,11 +139,11 @@ class QueryTerms:
     """
 
     original: str  # User's exact input
-    synonyms: List[str] = field(default_factory=list)  # Alternative words
-    expanded: List[str] = field(default_factory=list)  # Spelled-out abbreviations
-    related: List[str] = field(default_factory=list)   # Conceptually connected terms
+    synonyms: list[str] = field(default_factory=list)  # Alternative words
+    expanded: list[str] = field(default_factory=list)  # Spelled-out abbreviations
+    related: list[str] = field(default_factory=list)  # Conceptually connected terms
 
-    def all_terms(self) -> List[str]:
+    def all_terms(self) -> list[str]:
         """Get all terms for search."""
         terms = [self.original]
         terms.extend(self.synonyms)
@@ -172,9 +172,9 @@ class QueryMetadata:
     total_candidates_considered: int
     index_terms_searched: int = 0  # How many index terms were checked
     cross_refs_checked: int = 0  # How many cross-refs were checked
-    fallback_used: Optional[str] = None  # If primary strategy failed, what fallback was used
+    fallback_used: str | None = None  # If primary strategy failed, what fallback was used
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
             "query": self.original_query,
@@ -183,7 +183,7 @@ class QueryMetadata:
             "processing_time_ms": self.processing_time_ms,
             "candidates_considered": self.total_candidates_considered,
             "index_terms_searched": self.index_terms_searched,
-            "cross_refs_checked": self.cross_refs_checked
+            "cross_refs_checked": self.cross_refs_checked,
         }
         if self.fallback_used:
             result["fallback_used"] = self.fallback_used
@@ -196,26 +196,25 @@ class SearchResults:
     Complete search results with metadata for transparency.
     """
 
-    matches: List[NAICSMatch]
+    matches: list[NAICSMatch]
     query_metadata: QueryMetadata
 
-    def get_top_results(self, n: int = 10) -> List[NAICSMatch]:
+    def get_top_results(self, n: int = 10) -> list[NAICSMatch]:
         """Get the top N results."""
         return self.matches[:n]
 
-    def filter_by_confidence(self, min_confidence: float) -> List[NAICSMatch]:
+    def filter_by_confidence(self, min_confidence: float) -> list[NAICSMatch]:
         """Filter results by minimum confidence score."""
         return [m for m in self.matches if m.confidence.overall >= min_confidence]
 
-    def get_exclusion_warnings(self) -> List[Dict[str, Any]]:
+    def get_exclusion_warnings(self) -> list[dict[str, Any]]:
         """Get all exclusion warnings from results."""
         warnings = []
         for match in self.matches:
             if match.exclusion_warnings:
-                warnings.append({
-                    "code": match.code.node_code,
-                    "warnings": match.exclusion_warnings
-                })
+                warnings.append(
+                    {"code": match.code.node_code, "warnings": match.exclusion_warnings}
+                )
         return warnings
 
 
@@ -229,17 +228,19 @@ class ClassificationResult:
 
     input_description: str
     primary_classification: NAICSMatch
-    alternative_classifications: List[NAICSMatch]
+    alternative_classifications: list[NAICSMatch]
     reasoning: str
-    cross_ref_notes: List[str] = field(default_factory=list)
+    cross_ref_notes: list[str] = field(default_factory=list)
     confidence_level: str = "medium"  # "high", "medium", "low"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "input": self.input_description,
-            "primary": self.primary_classification.to_dict() if self.primary_classification else None,
+            "primary": self.primary_classification.to_dict()
+            if self.primary_classification
+            else None,
             "alternatives": [m.to_dict() for m in self.alternative_classifications],
             "reasoning": self.reasoning,
             "cross_ref_notes": self.cross_ref_notes,
-            "confidence_level": self.confidence_level
+            "confidence_level": self.confidence_level,
         }

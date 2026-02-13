@@ -4,15 +4,16 @@ Integration tests for NAICS MCP Server.
 Tests complete workflows combining multiple components.
 """
 
-import pytest
 from unittest.mock import MagicMock
-import numpy as np
 
-from naics_mcp_server.core.database import NAICSDatabase
-from naics_mcp_server.core.search_engine import NAICSSearchEngine
-from naics_mcp_server.core.classification_workbook import ClassificationWorkbook, FormType
-from naics_mcp_server.core.embeddings import TextEmbedder
+import numpy as np
+import pytest
+
 from naics_mcp_server.config import SearchConfig
+from naics_mcp_server.core.classification_workbook import ClassificationWorkbook, FormType
+from naics_mcp_server.core.database import NAICSDatabase
+from naics_mcp_server.core.embeddings import TextEmbedder
+from naics_mcp_server.core.search_engine import NAICSSearchEngine
 from naics_mcp_server.models.naics_models import NAICSLevel
 from naics_mcp_server.models.search_models import SearchStrategy
 
@@ -34,9 +35,7 @@ class TestClassificationWorkflow:
         """Create search engine with populated database."""
         config = SearchConfig()
         engine = NAICSSearchEngine(
-            database=populated_database,
-            embedder=mock_embedder,
-            config=config
+            database=populated_database, embedder=mock_embedder, config=config
         )
         engine.embeddings_ready = False  # Use lexical search
         return engine
@@ -48,9 +47,7 @@ class TestClassificationWorkflow:
 
     @pytest.mark.asyncio
     async def test_search_and_document_workflow(
-        self,
-        search_engine: NAICSSearchEngine,
-        workbook: ClassificationWorkbook
+        self, search_engine: NAICSSearchEngine, workbook: ClassificationWorkbook
     ):
         """Test: Search for codes, then document the classification decision."""
         # Step 1: Search for matching NAICS codes
@@ -59,7 +56,7 @@ class TestClassificationWorkflow:
             query="dog food",
             strategy=SearchStrategy.LEXICAL,
             limit=5,
-            min_confidence=0.1  # Lower threshold for test data
+            min_confidence=0.1,  # Lower threshold for test data
         )
 
         assert len(search_results.matches) > 0
@@ -79,16 +76,16 @@ class TestClassificationWorkflow:
                     {
                         "code": match.code.node_code,
                         "title": match.code.title,
-                        "confidence": match.confidence.overall
+                        "confidence": match.confidence.overall,
                     }
                     for match in search_results.matches[:3]
                 ],
                 "decision": {
                     "selected_code": top_match.code.node_code,
-                    "reasoning": f"Best match with {top_match.confidence.overall:.0%} confidence"
-                }
+                    "reasoning": f"Best match with {top_match.confidence.overall:.0%} confidence",
+                },
             },
-            confidence_score=top_match.confidence.overall
+            confidence_score=top_match.confidence.overall,
         )
 
         # Step 4: Verify the entry was created
@@ -98,9 +95,7 @@ class TestClassificationWorkflow:
 
     @pytest.mark.asyncio
     async def test_hierarchy_exploration_workflow(
-        self,
-        populated_database: NAICSDatabase,
-        workbook: ClassificationWorkbook
+        self, populated_database: NAICSDatabase, workbook: ClassificationWorkbook
     ):
         """Test: Explore hierarchy from sector to specific code."""
         # Step 1: Start at sector level
@@ -119,7 +114,9 @@ class TestClassificationWorkflow:
 
         # Step 4: Get complete hierarchy
         hierarchy = await populated_database.get_hierarchy("311111")
-        assert len(hierarchy) == 5  # sector → subsector → industry_group → naics_industry → national_industry
+        assert (
+            len(hierarchy) == 5
+        )  # sector → subsector → industry_group → naics_industry → national_industry
 
         # Step 5: Document the exploration
         entry = await workbook.create_entry(
@@ -132,22 +129,17 @@ class TestClassificationWorkflow:
                     {"question": "Subsector?", "answer": "311 - Food Manufacturing"},
                     {"question": "Industry Group?", "answer": "3111 - Animal Food"},
                     {"question": "NAICS Industry?", "answer": "31111 - Animal Food Mfg"},
-                    {"question": "National Industry?", "answer": "311111 - Dog and Cat Food"}
+                    {"question": "National Industry?", "answer": "311111 - Dog and Cat Food"},
                 ],
-                "final_classification": {
-                    "code": "311111",
-                    "title": national_industry.title
-                }
-            }
+                "final_classification": {"code": "311111", "title": national_industry.title},
+            },
         )
 
         assert entry is not None
 
     @pytest.mark.asyncio
     async def test_cross_reference_check_workflow(
-        self,
-        populated_database: NAICSDatabase,
-        workbook: ClassificationWorkbook
+        self, populated_database: NAICSDatabase, workbook: ClassificationWorkbook
     ):
         """Test: Check cross-references for exclusions."""
         # Step 1: Get cross-references for a code
@@ -171,20 +163,18 @@ class TestClassificationWorkflow:
                     {
                         "excluded_activity": exclusion.excluded_activity,
                         "target_code": exclusion.target_code,
-                        "reference_text": exclusion.reference_text
+                        "reference_text": exclusion.reference_text,
                     }
                 ],
-                "conclusion": "Other animal food excluded, classified under 311119"
-            }
+                "conclusion": "Other animal food excluded, classified under 311119",
+            },
         )
 
         assert entry is not None
 
     @pytest.mark.asyncio
     async def test_index_term_search_workflow(
-        self,
-        populated_database: NAICSDatabase,
-        search_engine: NAICSSearchEngine
+        self, populated_database: NAICSDatabase, search_engine: NAICSSearchEngine
     ):
         """Test: Search using official index terms."""
         # Step 1: Search index terms
@@ -205,9 +195,7 @@ class TestClassificationWorkflow:
 
     @pytest.mark.asyncio
     async def test_sibling_comparison_workflow(
-        self,
-        populated_database: NAICSDatabase,
-        workbook: ClassificationWorkbook
+        self, populated_database: NAICSDatabase, workbook: ClassificationWorkbook
     ):
         """Test: Compare sibling codes for classification decision."""
         # Step 1: Get code and its siblings
@@ -220,32 +208,25 @@ class TestClassificationWorkflow:
         comparison_data = {
             "comparison_title": "Animal Food Manufacturing Comparison",
             "codes_compared": [
-                {
-                    "code": code.node_code,
-                    "title": code.title,
-                    "description": code.description
-                }
-            ] + [
-                {
-                    "code": s.node_code,
-                    "title": s.title,
-                    "description": s.description
-                }
+                {"code": code.node_code, "title": code.title, "description": code.description}
+            ]
+            + [
+                {"code": s.node_code, "title": s.title, "description": s.description}
                 for s in siblings
             ],
             "analysis": {
                 "key_differentiators": [
                     "311111: Specifically dog and cat food",
-                    "311119: All other animal food (livestock, poultry)"
+                    "311119: All other animal food (livestock, poultry)",
                 ],
-                "recommendation": "Use 311111 for pets, 311119 for farm animals"
-            }
+                "recommendation": "Use 311111 for pets, 311119 for farm animals",
+            },
         }
 
         entry = await workbook.create_entry(
             form_type=FormType.INDUSTRY_COMPARISON,
             label="Animal Food Codes Comparison",
-            content=comparison_data
+            content=comparison_data,
         )
 
         assert entry is not None
@@ -317,9 +298,7 @@ class TestSearchConsistency:
     def search_engine(self, populated_database: NAICSDatabase, mock_embedder):
         config = SearchConfig()
         engine = NAICSSearchEngine(
-            database=populated_database,
-            embedder=mock_embedder,
-            config=config
+            database=populated_database, embedder=mock_embedder, config=config
         )
         engine.embeddings_ready = False
         return engine
@@ -328,18 +307,14 @@ class TestSearchConsistency:
     async def test_search_results_are_deterministic(self, search_engine: NAICSSearchEngine):
         """Same query should return same results."""
         results1 = await search_engine.search(
-            query="dog food",
-            strategy=SearchStrategy.LEXICAL,
-            limit=5
+            query="dog food", strategy=SearchStrategy.LEXICAL, limit=5
         )
 
         # Clear cache to ensure fresh search
         search_engine.search_cache.clear()
 
         results2 = await search_engine.search(
-            query="dog food",
-            strategy=SearchStrategy.LEXICAL,
-            limit=5
+            query="dog food", strategy=SearchStrategy.LEXICAL, limit=5
         )
 
         assert len(results1.matches) == len(results2.matches)
@@ -350,9 +325,7 @@ class TestSearchConsistency:
     async def test_search_ranking_consistency(self, search_engine: NAICSSearchEngine):
         """Higher confidence matches should always rank higher."""
         results = await search_engine.search(
-            query="manufacturing food dog",
-            strategy=SearchStrategy.LEXICAL,
-            limit=10
+            query="manufacturing food dog", strategy=SearchStrategy.LEXICAL, limit=10
         )
 
         if len(results.matches) >= 2:
@@ -365,16 +338,12 @@ class TestSearchConsistency:
         """Cached results should match fresh results."""
         # First search (cache miss)
         results1 = await search_engine.search(
-            query="beverage manufacturing",
-            strategy=SearchStrategy.LEXICAL,
-            limit=5
+            query="beverage manufacturing", strategy=SearchStrategy.LEXICAL, limit=5
         )
 
         # Second search (cache hit)
         results2 = await search_engine.search(
-            query="beverage manufacturing",
-            strategy=SearchStrategy.LEXICAL,
-            limit=5
+            query="beverage manufacturing", strategy=SearchStrategy.LEXICAL, limit=5
         )
 
         assert len(results1.matches) == len(results2.matches)
@@ -393,7 +362,7 @@ class TestWorkbookPersistence:
         entry = await workbook1.create_entry(
             form_type=FormType.CUSTOM,
             label="Persistent Entry",
-            content={"data": "test persistence"}
+            content={"data": "test persistence"},
         )
 
         # Create new workbook instance (same database)
@@ -412,25 +381,17 @@ class TestWorkbookPersistence:
         workbook = ClassificationWorkbook(populated_database)
 
         complex_content = {
-            "nested": {
-                "deeply": {
-                    "nested": {
-                        "value": 12345
-                    }
-                }
-            },
+            "nested": {"deeply": {"nested": {"value": 12345}}},
             "array": [1, 2, 3, {"key": "value"}],
             "unicode": "Ünïcödé tëst 日本語",
             "special": "Quotes 'single' and \"double\"",
             "boolean": True,
             "null": None,
-            "float": 3.14159
+            "float": 3.14159,
         }
 
         entry = await workbook.create_entry(
-            form_type=FormType.CUSTOM,
-            label="Complex Content Test",
-            content=complex_content
+            form_type=FormType.CUSTOM, label="Complex Content Test", content=complex_content
         )
 
         retrieved = await workbook.get_entry(entry.entry_id)
@@ -455,16 +416,12 @@ class TestEndToEndScenarios:
 
     @pytest.mark.asyncio
     async def test_full_classification_session(
-        self,
-        populated_database: NAICSDatabase,
-        mock_embedder
+        self, populated_database: NAICSDatabase, mock_embedder
     ):
         """Test a complete classification session from start to finish."""
         # Initialize components
         search_engine = NAICSSearchEngine(
-            database=populated_database,
-            embedder=mock_embedder,
-            config=SearchConfig()
+            database=populated_database, embedder=mock_embedder, config=SearchConfig()
         )
         search_engine.embeddings_ready = False
 
@@ -479,7 +436,7 @@ class TestEndToEndScenarios:
             query="dog food",  # Simpler query for test data
             strategy=SearchStrategy.LEXICAL,
             limit=5,
-            min_confidence=0.1  # Lower threshold for test data
+            min_confidence=0.1,  # Lower threshold for test data
         )
 
         assert len(search_results.matches) > 0
@@ -493,8 +450,8 @@ class TestEndToEndScenarios:
                 "business_name": "Premium Pet Foods Inc.",
                 "business_description": business_description,
                 "primary_products_services": ["Dog food", "Cat food"],
-                "primary_customers": "Pet retailers"
-            }
+                "primary_customers": "Pet retailers",
+            },
         )
 
         # Step 3: Get hierarchy context
@@ -517,32 +474,28 @@ class TestEndToEndScenarios:
                     {
                         "code": m.code.node_code,
                         "title": m.code.title,
-                        "confidence": m.confidence.overall
+                        "confidence": m.confidence.overall,
                     }
                     for m in search_results.matches[:3]
                 ],
-                "hierarchy_context": [
-                    {"code": h.node_code, "title": h.title}
-                    for h in hierarchy
-                ],
+                "hierarchy_context": [{"code": h.node_code, "title": h.title} for h in hierarchy],
                 "cross_reference_check": {
                     "exclusions_reviewed": len(cross_refs),
                     "relevant_exclusions": [
                         {"activity": ref.excluded_activity, "target": ref.target_code}
                         for ref in cross_refs
-                    ]
+                    ],
                 },
                 "alternatives_considered": [
-                    {"code": s.node_code, "title": s.title}
-                    for s in siblings
+                    {"code": s.node_code, "title": s.title} for s in siblings
                 ],
                 "decision": {
                     "selected_code": top_code.node_code,
-                    "reasoning": "Primary activity is dog and cat food manufacturing"
-                }
+                    "reasoning": "Primary activity is dog and cat food manufacturing",
+                },
             },
             parent_entry_id=profile.entry_id,
-            confidence_score=search_results.matches[0].confidence.overall
+            confidence_score=search_results.matches[0].confidence.overall,
         )
 
         # Verify complete session
@@ -551,9 +504,7 @@ class TestEndToEndScenarios:
         assert classification.parent_entry_id == profile.entry_id
 
         # Verify we can retrieve all related entries
-        session_entries = await workbook.search_entries(
-            session_id=workbook.current_session_id
-        )
+        session_entries = await workbook.search_entries(session_id=workbook.current_session_id)
         assert len(session_entries) >= 2
 
         # Verify parent-child relationship

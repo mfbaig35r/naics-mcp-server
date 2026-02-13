@@ -5,12 +5,13 @@ This module handles the vector representation of NAICS descriptions,
 making semantic search possible.
 """
 
-import numpy as np
-from typing import List, Dict, Any, Optional
-from pathlib import Path
 import logging
+from pathlib import Path
+from typing import Any
 
-from .errors import EmbeddingError, ConfigurationError
+import numpy as np
+
+from .errors import ConfigurationError, EmbeddingError
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class TextEmbedder:
     semantic meaning, enabling similarity-based search.
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", cache_dir: Optional[Path] = None):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", cache_dir: Path | None = None):
         """
         Initialize the embedding model.
 
@@ -56,10 +57,7 @@ class TextEmbedder:
             from sentence_transformers import SentenceTransformer
 
             logger.info(f"Loading embedding model: {self.model_name}")
-            self.model = SentenceTransformer(
-                self.model_name,
-                cache_folder=str(self.cache_dir)
-            )
+            self.model = SentenceTransformer(self.model_name, cache_folder=str(self.cache_dir))
             self.dimension = self.model.get_sentence_embedding_dimension()
             logger.info(f"Model loaded successfully. Embedding dimension: {self.dimension}")
 
@@ -68,7 +66,7 @@ class TextEmbedder:
             raise ConfigurationError(
                 message="sentence-transformers package not installed",
                 config_key="embedding_model",
-                details={"model_name": self.model_name}
+                details={"model_name": self.model_name},
             )
         except Exception as e:
             logger.error(f"Failed to load embedding model: {e}")
@@ -76,7 +74,7 @@ class TextEmbedder:
                 message=f"Could not load embedding model {self.model_name}",
                 retryable=False,
                 details={"model_name": self.model_name, "cache_dir": str(self.cache_dir)},
-                cause=e
+                cause=e,
             )
 
     def embed_text(self, text: str, normalize: bool = True) -> np.ndarray:
@@ -95,9 +93,7 @@ class TextEmbedder:
 
         try:
             embedding = self.model.encode(
-                text,
-                convert_to_numpy=True,
-                normalize_embeddings=normalize
+                text, convert_to_numpy=True, normalize_embeddings=normalize
             )
             return embedding
 
@@ -107,15 +103,15 @@ class TextEmbedder:
                 message="Failed to generate embedding for text",
                 retryable=True,
                 details={"text_preview": text[:50] if text else ""},
-                cause=e
+                cause=e,
             )
 
     def embed_batch(
         self,
-        texts: List[str],
+        texts: list[str],
         batch_size: int = 32,
         normalize: bool = True,
-        show_progress: bool = False
+        show_progress: bool = False,
     ) -> np.ndarray:
         """
         Generate embeddings for multiple texts efficiently.
@@ -138,7 +134,7 @@ class TextEmbedder:
                 batch_size=batch_size,
                 convert_to_numpy=True,
                 normalize_embeddings=normalize,
-                show_progress_bar=show_progress
+                show_progress_bar=show_progress,
             )
             return embeddings
 
@@ -148,14 +144,10 @@ class TextEmbedder:
                 message="Failed to generate embeddings for batch",
                 retryable=True,
                 details={"batch_size": len(texts)},
-                cause=e
+                cause=e,
             )
 
-    def compute_similarity(
-        self,
-        embedding1: np.ndarray,
-        embedding2: np.ndarray
-    ) -> float:
+    def compute_similarity(self, embedding1: np.ndarray, embedding2: np.ndarray) -> float:
         """
         Compute cosine similarity between two embeddings.
 
@@ -177,8 +169,8 @@ class TextEmbedder:
         query_embedding: np.ndarray,
         candidate_embeddings: np.ndarray,
         top_k: int = 10,
-        min_similarity: float = 0.0
-    ) -> List[Dict[str, Any]]:
+        min_similarity: float = 0.0,
+    ) -> list[dict[str, Any]]:
         """
         Find most similar embeddings from candidates.
 
@@ -209,10 +201,9 @@ class TextEmbedder:
         results = []
         for idx in top_indices:
             original_idx = valid_indices[idx]
-            results.append({
-                "index": int(original_idx),
-                "similarity": float(valid_similarities[idx])
-            })
+            results.append(
+                {"index": int(original_idx), "similarity": float(valid_similarities[idx])}
+            )
 
         return results
 
@@ -231,12 +222,12 @@ class EmbeddingCache:
         Args:
             max_size: Maximum number of embeddings to cache
         """
-        self.cache: Dict[str, np.ndarray] = {}
+        self.cache: dict[str, np.ndarray] = {}
         self.max_size = max_size
         self.hits = 0
         self.misses = 0
 
-    def get(self, text: str) -> Optional[np.ndarray]:
+    def get(self, text: str) -> np.ndarray | None:
         """
         Retrieve embedding from cache.
 
@@ -269,7 +260,7 @@ class EmbeddingCache:
 
         self.cache[text] = embedding
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics for monitoring."""
         total_requests = self.hits + self.misses
         hit_rate = self.hits / total_requests if total_requests > 0 else 0
@@ -279,7 +270,7 @@ class EmbeddingCache:
             "max_size": self.max_size,
             "hits": self.hits,
             "misses": self.misses,
-            "hit_rate": hit_rate
+            "hit_rate": hit_rate,
         }
 
     def clear(self) -> None:

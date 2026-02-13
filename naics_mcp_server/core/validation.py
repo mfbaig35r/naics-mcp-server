@@ -5,11 +5,11 @@ Provides validators for business descriptions, NAICS codes, and batch operations
 with clear error messages and consistent behavior.
 """
 
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Any
-import logging
+from typing import Any
 
 from .errors import ValidationError
 
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 # --- Configuration ---
+
 
 @dataclass
 class ValidationConfig:
@@ -53,16 +54,17 @@ DEFAULT_CONFIG = ValidationConfig()
 
 # --- Validation Result ---
 
+
 @dataclass
 class ValidationResult:
     """Result of a validation check."""
 
     is_valid: bool
     value: Any  # The validated (potentially transformed) value
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @classmethod
-    def valid(cls, value: Any, warnings: Optional[List[str]] = None) -> "ValidationResult":
+    def valid(cls, value: Any, warnings: list[str] | None = None) -> "ValidationResult":
         """Create a valid result."""
         return cls(is_valid=True, value=value, warnings=warnings or [])
 
@@ -73,6 +75,7 @@ class ValidationResult:
 
 
 # --- Text Normalization ---
+
 
 def normalize_text(text: str) -> str:
     """
@@ -91,10 +94,10 @@ def normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFC", text)
 
     # Replace various whitespace characters with regular space
-    normalized = re.sub(r'[\t\r\n\f\v]+', ' ', normalized)
+    normalized = re.sub(r"[\t\r\n\f\v]+", " ", normalized)
 
     # Collapse multiple spaces
-    normalized = re.sub(r' +', ' ', normalized)
+    normalized = re.sub(r" +", " ", normalized)
 
     # Strip leading/trailing whitespace
     return normalized.strip()
@@ -103,7 +106,7 @@ def normalize_text(text: str) -> str:
 def is_valid_utf8(text: str) -> bool:
     """Check if text contains only valid UTF-8 characters."""
     try:
-        text.encode('utf-8').decode('utf-8')
+        text.encode("utf-8").decode("utf-8")
         return True
     except UnicodeError:
         return False
@@ -111,10 +114,9 @@ def is_valid_utf8(text: str) -> bool:
 
 # --- Business Description Validator ---
 
+
 def validate_description(
-    description: str,
-    config: ValidationConfig = DEFAULT_CONFIG,
-    field_name: str = "description"
+    description: str, config: ValidationConfig = DEFAULT_CONFIG, field_name: str = "description"
 ) -> ValidationResult:
     """
     Validate a business description.
@@ -134,17 +136,14 @@ def validate_description(
 
     # Check for None
     if description is None:
-        raise ValidationError(
-            message=f"{field_name} is required",
-            field=field_name
-        )
+        raise ValidationError(message=f"{field_name} is required", field=field_name)
 
     # Check type
     if not isinstance(description, str):
         raise ValidationError(
             message=f"{field_name} must be a string",
             field=field_name,
-            value=type(description).__name__
+            value=type(description).__name__,
         )
 
     # Normalize the text
@@ -153,16 +152,12 @@ def validate_description(
     # Check for empty/whitespace only
     if not normalized:
         raise ValidationError(
-            message=f"{field_name} cannot be empty or whitespace only",
-            field=field_name
+            message=f"{field_name} cannot be empty or whitespace only", field=field_name
         )
 
     # Check UTF-8 validity
     if not is_valid_utf8(normalized):
-        raise ValidationError(
-            message=f"{field_name} contains invalid characters",
-            field=field_name
-        )
+        raise ValidationError(message=f"{field_name} contains invalid characters", field=field_name)
 
     # Check minimum length
     if len(normalized) < config.description_min_length:
@@ -170,23 +165,31 @@ def validate_description(
             message=f"{field_name} must be at least {config.description_min_length} characters",
             field=field_name,
             value=normalized,
-            constraints={"min_length": config.description_min_length, "actual_length": len(normalized)}
+            constraints={
+                "min_length": config.description_min_length,
+                "actual_length": len(normalized),
+            },
         )
 
     # Check maximum length
     if len(normalized) > config.description_max_length:
         if config.description_truncate_on_overflow:
             original_length = len(normalized)
-            normalized = normalized[:config.description_max_length]
+            normalized = normalized[: config.description_max_length]
             warnings.append(
                 f"{field_name} truncated from {original_length} to {config.description_max_length} characters"
             )
-            logger.warning(f"Description truncated from {original_length} to {config.description_max_length} chars")
+            logger.warning(
+                f"Description truncated from {original_length} to {config.description_max_length} chars"
+            )
         else:
             raise ValidationError(
                 message=f"{field_name} must be at most {config.description_max_length} characters",
                 field=field_name,
-                constraints={"max_length": config.description_max_length, "actual_length": len(normalized)}
+                constraints={
+                    "max_length": config.description_max_length,
+                    "actual_length": len(normalized),
+                },
             )
 
     return ValidationResult.valid(normalized, warnings)
@@ -194,10 +197,9 @@ def validate_description(
 
 # --- NAICS Code Validator ---
 
+
 def validate_naics_code(
-    code: str,
-    config: ValidationConfig = DEFAULT_CONFIG,
-    field_name: str = "naics_code"
+    code: str, config: ValidationConfig = DEFAULT_CONFIG, field_name: str = "naics_code"
 ) -> ValidationResult:
     """
     Validate a NAICS code format.
@@ -215,10 +217,7 @@ def validate_naics_code(
     """
     # Check for None
     if code is None:
-        raise ValidationError(
-            message=f"{field_name} is required",
-            field=field_name
-        )
+        raise ValidationError(message=f"{field_name} is required", field=field_name)
 
     # Check type
     if not isinstance(code, str):
@@ -229,7 +228,7 @@ def validate_naics_code(
             raise ValidationError(
                 message=f"{field_name} must be a string or integer",
                 field=field_name,
-                value=type(code).__name__
+                value=type(code).__name__,
             )
 
     # Strip whitespace
@@ -237,17 +236,12 @@ def validate_naics_code(
 
     # Check for empty
     if not code:
-        raise ValidationError(
-            message=f"{field_name} cannot be empty",
-            field=field_name
-        )
+        raise ValidationError(message=f"{field_name} cannot be empty", field=field_name)
 
     # Check for digits only
     if not code.isdigit():
         raise ValidationError(
-            message=f"{field_name} must contain only digits",
-            field=field_name,
-            value=code
+            message=f"{field_name} must contain only digits", field=field_name, value=code
         )
 
     # Check length (NAICS codes are 2-6 digits)
@@ -256,7 +250,7 @@ def validate_naics_code(
             message=f"{field_name} must be at least {config.naics_code_min_digits} digits",
             field=field_name,
             value=code,
-            constraints={"min_digits": config.naics_code_min_digits}
+            constraints={"min_digits": config.naics_code_min_digits},
         )
 
     if len(code) > config.naics_code_max_digits:
@@ -264,17 +258,14 @@ def validate_naics_code(
             message=f"{field_name} must be at most {config.naics_code_max_digits} digits",
             field=field_name,
             value=code,
-            constraints={"max_digits": config.naics_code_max_digits}
+            constraints={"max_digits": config.naics_code_max_digits},
         )
 
     return ValidationResult.valid(code)
 
 
 async def validate_naics_code_exists(
-    code: str,
-    database,
-    config: ValidationConfig = DEFAULT_CONFIG,
-    field_name: str = "naics_code"
+    code: str, database, config: ValidationConfig = DEFAULT_CONFIG, field_name: str = "naics_code"
 ) -> ValidationResult:
     """
     Validate that a NAICS code exists in the database.
@@ -298,9 +289,7 @@ async def validate_naics_code_exists(
     naics_code = await database.get_by_code(result.value)
     if naics_code is None:
         raise ValidationError(
-            message=f"NAICS code '{result.value}' not found",
-            field=field_name,
-            value=result.value
+            message=f"NAICS code '{result.value}' not found", field=field_name, value=result.value
         )
 
     return result
@@ -308,10 +297,9 @@ async def validate_naics_code_exists(
 
 # --- Search Query Validator ---
 
+
 def validate_search_query(
-    query: str,
-    config: ValidationConfig = DEFAULT_CONFIG,
-    field_name: str = "query"
+    query: str, config: ValidationConfig = DEFAULT_CONFIG, field_name: str = "query"
 ) -> ValidationResult:
     """
     Validate a search query.
@@ -331,17 +319,12 @@ def validate_search_query(
 
     # Check for None
     if query is None:
-        raise ValidationError(
-            message=f"{field_name} is required",
-            field=field_name
-        )
+        raise ValidationError(message=f"{field_name} is required", field=field_name)
 
     # Check type
     if not isinstance(query, str):
         raise ValidationError(
-            message=f"{field_name} must be a string",
-            field=field_name,
-            value=type(query).__name__
+            message=f"{field_name} must be a string", field=field_name, value=type(query).__name__
         )
 
     # Normalize
@@ -349,10 +332,7 @@ def validate_search_query(
 
     # Check for empty
     if not normalized:
-        raise ValidationError(
-            message=f"{field_name} cannot be empty",
-            field=field_name
-        )
+        raise ValidationError(message=f"{field_name} cannot be empty", field=field_name)
 
     # Check minimum length
     if len(normalized) < config.search_query_min_length:
@@ -360,24 +340,25 @@ def validate_search_query(
             message=f"{field_name} must be at least {config.search_query_min_length} characters",
             field=field_name,
             value=normalized,
-            constraints={"min_length": config.search_query_min_length}
+            constraints={"min_length": config.search_query_min_length},
         )
 
     # Truncate if too long
     if len(normalized) > config.search_query_max_length:
         original_length = len(normalized)
-        normalized = normalized[:config.search_query_max_length]
-        warnings.append(f"{field_name} truncated from {original_length} to {config.search_query_max_length} characters")
+        normalized = normalized[: config.search_query_max_length]
+        warnings.append(
+            f"{field_name} truncated from {original_length} to {config.search_query_max_length} characters"
+        )
 
     return ValidationResult.valid(normalized, warnings)
 
 
 # --- Numeric Validators ---
 
+
 def validate_limit(
-    limit: int,
-    config: ValidationConfig = DEFAULT_CONFIG,
-    field_name: str = "limit"
+    limit: int, config: ValidationConfig = DEFAULT_CONFIG, field_name: str = "limit"
 ) -> ValidationResult:
     """
     Validate a limit parameter.
@@ -403,9 +384,7 @@ def validate_limit(
             limit = int(limit)
         except (ValueError, TypeError):
             raise ValidationError(
-                message=f"{field_name} must be an integer",
-                field=field_name,
-                value=str(limit)
+                message=f"{field_name} must be an integer", field=field_name, value=str(limit)
             )
 
     # Check bounds
@@ -414,23 +393,21 @@ def validate_limit(
             message=f"{field_name} must be at least 1",
             field=field_name,
             value=limit,
-            constraints={"min": 1}
+            constraints={"min": 1},
         )
 
     if limit > config.search_limit_max:
         # Cap at max instead of rejecting
         return ValidationResult.valid(
             config.search_limit_max,
-            warnings=[f"{field_name} capped at maximum of {config.search_limit_max}"]
+            warnings=[f"{field_name} capped at maximum of {config.search_limit_max}"],
         )
 
     return ValidationResult.valid(limit)
 
 
 def validate_confidence(
-    confidence: float,
-    config: ValidationConfig = DEFAULT_CONFIG,
-    field_name: str = "min_confidence"
+    confidence: float, config: ValidationConfig = DEFAULT_CONFIG, field_name: str = "min_confidence"
 ) -> ValidationResult:
     """
     Validate a confidence threshold.
@@ -456,9 +433,7 @@ def validate_confidence(
             confidence = float(confidence)
         except (ValueError, TypeError):
             raise ValidationError(
-                message=f"{field_name} must be a number",
-                field=field_name,
-                value=str(confidence)
+                message=f"{field_name} must be a number", field=field_name, value=str(confidence)
             )
 
     # Convert to float
@@ -470,7 +445,7 @@ def validate_confidence(
             message=f"{field_name} must be at least {config.confidence_min}",
             field=field_name,
             value=confidence,
-            constraints={"min": config.confidence_min}
+            constraints={"min": config.confidence_min},
         )
 
     if confidence > config.confidence_max:
@@ -478,7 +453,7 @@ def validate_confidence(
             message=f"{field_name} must be at most {config.confidence_max}",
             field=field_name,
             value=confidence,
-            constraints={"max": config.confidence_max}
+            constraints={"max": config.confidence_max},
         )
 
     return ValidationResult.valid(confidence)
@@ -486,10 +461,11 @@ def validate_confidence(
 
 # --- Batch Validators ---
 
+
 def validate_batch_descriptions(
-    descriptions: List[str],
+    descriptions: list[str],
     config: ValidationConfig = DEFAULT_CONFIG,
-    field_name: str = "descriptions"
+    field_name: str = "descriptions",
 ) -> ValidationResult:
     """
     Validate a batch of descriptions.
@@ -509,43 +485,33 @@ def validate_batch_descriptions(
 
     # Check for None
     if descriptions is None:
-        raise ValidationError(
-            message=f"{field_name} is required",
-            field=field_name
-        )
+        raise ValidationError(message=f"{field_name} is required", field=field_name)
 
     # Check type
     if not isinstance(descriptions, list):
         raise ValidationError(
             message=f"{field_name} must be a list",
             field=field_name,
-            value=type(descriptions).__name__
+            value=type(descriptions).__name__,
         )
 
     # Check for empty list
     if len(descriptions) == 0:
-        raise ValidationError(
-            message=f"{field_name} cannot be empty",
-            field=field_name
-        )
+        raise ValidationError(message=f"{field_name} cannot be empty", field=field_name)
 
     # Check batch size
     if len(descriptions) > config.batch_max_size:
         raise ValidationError(
             message=f"{field_name} exceeds maximum batch size of {config.batch_max_size}",
             field=field_name,
-            constraints={"max_size": config.batch_max_size, "actual_size": len(descriptions)}
+            constraints={"max_size": config.batch_max_size, "actual_size": len(descriptions)},
         )
 
     # Validate each description
     validated_descriptions = []
     for i, desc in enumerate(descriptions):
         try:
-            result = validate_description(
-                desc,
-                config,
-                field_name=f"{field_name}[{i}]"
-            )
+            result = validate_description(desc, config, field_name=f"{field_name}[{i}]")
             validated_descriptions.append(result.value)
             warnings.extend(result.warnings)
         except ValidationError as e:
@@ -554,16 +520,14 @@ def validate_batch_descriptions(
                 message=f"Invalid item at index {i}: {e.message}",
                 field=f"{field_name}[{i}]",
                 value=desc[:50] if isinstance(desc, str) else str(desc)[:50],
-                constraints=e.details.get("constraints")
+                constraints=e.details.get("constraints"),
             )
 
     return ValidationResult.valid(validated_descriptions, warnings)
 
 
 def validate_batch_codes(
-    codes: List[str],
-    config: ValidationConfig = DEFAULT_CONFIG,
-    field_name: str = "codes"
+    codes: list[str], config: ValidationConfig = DEFAULT_CONFIG, field_name: str = "codes"
 ) -> ValidationResult:
     """
     Validate a batch of NAICS codes.
@@ -581,25 +545,17 @@ def validate_batch_codes(
     """
     # Check for None
     if codes is None:
-        raise ValidationError(
-            message=f"{field_name} is required",
-            field=field_name
-        )
+        raise ValidationError(message=f"{field_name} is required", field=field_name)
 
     # Check type
     if not isinstance(codes, list):
         raise ValidationError(
-            message=f"{field_name} must be a list",
-            field=field_name,
-            value=type(codes).__name__
+            message=f"{field_name} must be a list", field=field_name, value=type(codes).__name__
         )
 
     # Check for empty list
     if len(codes) == 0:
-        raise ValidationError(
-            message=f"{field_name} cannot be empty",
-            field=field_name
-        )
+        raise ValidationError(message=f"{field_name} cannot be empty", field=field_name)
 
     # Check batch size (use a reasonable limit for code comparisons)
     max_codes = 20  # Reasonable limit for code comparison
@@ -607,24 +563,20 @@ def validate_batch_codes(
         raise ValidationError(
             message=f"{field_name} exceeds maximum of {max_codes} codes",
             field=field_name,
-            constraints={"max_size": max_codes, "actual_size": len(codes)}
+            constraints={"max_size": max_codes, "actual_size": len(codes)},
         )
 
     # Validate each code
     validated_codes = []
     for i, code in enumerate(codes):
         try:
-            result = validate_naics_code(
-                code,
-                config,
-                field_name=f"{field_name}[{i}]"
-            )
+            result = validate_naics_code(code, config, field_name=f"{field_name}[{i}]")
             validated_codes.append(result.value)
         except ValidationError as e:
             raise ValidationError(
                 message=f"Invalid code at index {i}: {e.message}",
                 field=f"{field_name}[{i}]",
-                value=str(code)[:20]
+                value=str(code)[:20],
             )
 
     return ValidationResult.valid(validated_codes)
@@ -634,10 +586,8 @@ def validate_batch_codes(
 
 VALID_STRATEGIES = {"hybrid", "semantic", "lexical", "best_match", "meaning", "exact"}
 
-def validate_strategy(
-    strategy: str,
-    field_name: str = "strategy"
-) -> ValidationResult:
+
+def validate_strategy(strategy: str, field_name: str = "strategy") -> ValidationResult:
     """
     Validate a search strategy.
 
@@ -660,7 +610,7 @@ def validate_strategy(
         raise ValidationError(
             message=f"{field_name} must be a string",
             field=field_name,
-            value=type(strategy).__name__
+            value=type(strategy).__name__,
         )
 
     # Normalize
@@ -672,7 +622,7 @@ def validate_strategy(
             message=f"Invalid {field_name}: '{strategy}'. Must be one of: {', '.join(sorted(VALID_STRATEGIES))}",
             field=field_name,
             value=strategy,
-            constraints={"valid_values": sorted(VALID_STRATEGIES)}
+            constraints={"valid_values": sorted(VALID_STRATEGIES)},
         )
 
     return ValidationResult.valid(strategy)

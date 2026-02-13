@@ -6,56 +6,180 @@ Provides reusable test fixtures for database, search engine, and sample data.
 
 import os
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 
 import pytest
-import duckdb
 
 from naics_mcp_server.core.database import NAICSDatabase
 from naics_mcp_server.models.naics_models import NAICSLevel
-
 
 # --- Sample Data ---
 
 SAMPLE_NAICS_CODES = [
     # Sector
-    ("31", "sector", "Manufacturing", "Manufacturing sector description",
-     None, None, None, None, "Manufacturing sector", None, True),
+    (
+        "31",
+        "sector",
+        "Manufacturing",
+        "Manufacturing sector description",
+        None,
+        None,
+        None,
+        None,
+        "Manufacturing sector",
+        None,
+        True,
+    ),
     # Subsector
-    ("311", "subsector", "Food Manufacturing", "Food manufacturing subsector",
-     "31", None, None, None, "Food manufacturing", None, True),
+    (
+        "311",
+        "subsector",
+        "Food Manufacturing",
+        "Food manufacturing subsector",
+        "31",
+        None,
+        None,
+        None,
+        "Food manufacturing",
+        None,
+        True,
+    ),
     # Industry Group
-    ("3111", "industry_group", "Animal Food Manufacturing", "Animal food industry group",
-     "31", "311", None, None, "Animal food manufacturing", None, True),
+    (
+        "3111",
+        "industry_group",
+        "Animal Food Manufacturing",
+        "Animal food industry group",
+        "31",
+        "311",
+        None,
+        None,
+        "Animal food manufacturing",
+        None,
+        True,
+    ),
     # NAICS Industry
-    ("31111", "naics_industry", "Animal Food Manufacturing", "Animal food NAICS industry",
-     "31", "311", "3111", None, "Animal food manufacturing industry", None, True),
+    (
+        "31111",
+        "naics_industry",
+        "Animal Food Manufacturing",
+        "Animal food NAICS industry",
+        "31",
+        "311",
+        "3111",
+        None,
+        "Animal food manufacturing industry",
+        None,
+        True,
+    ),
     # National Industries
-    ("311111", "national_industry", "Dog and Cat Food Manufacturing",
-     "Manufacturing dog and cat food from purchased ingredients",
-     "31", "311", "3111", "31111", "Dog food cat food pet food manufacturing", None, True),
-    ("311119", "national_industry", "Other Animal Food Manufacturing",
-     "Manufacturing animal food (except dog and cat) from purchased ingredients",
-     "31", "311", "3111", "31111", "Animal feed livestock feed poultry feed", None, True),
+    (
+        "311111",
+        "national_industry",
+        "Dog and Cat Food Manufacturing",
+        "Manufacturing dog and cat food from purchased ingredients",
+        "31",
+        "311",
+        "3111",
+        "31111",
+        "Dog food cat food pet food manufacturing",
+        None,
+        True,
+    ),
+    (
+        "311119",
+        "national_industry",
+        "Other Animal Food Manufacturing",
+        "Manufacturing animal food (except dog and cat) from purchased ingredients",
+        "31",
+        "311",
+        "3111",
+        "31111",
+        "Animal feed livestock feed poultry feed",
+        None,
+        True,
+    ),
     # Another branch - Beverage
-    ("312", "subsector", "Beverage and Tobacco Product Manufacturing",
-     "Beverage and tobacco manufacturing subsector",
-     "31", None, None, None, "Beverage tobacco manufacturing", None, True),
-    ("3121", "industry_group", "Beverage Manufacturing", "Beverage manufacturing",
-     "31", "312", None, None, "Beverage manufacturing", None, True),
-    ("31211", "naics_industry", "Soft Drink and Ice Manufacturing",
-     "Soft drink and ice manufacturing",
-     "31", "312", "3121", None, "Soft drinks ice manufacturing", None, True),
-    ("312111", "national_industry", "Soft Drink Manufacturing",
-     "Manufacturing soft drinks, bottled water, and ice",
-     "31", "312", "3121", "31211", "Soft drinks bottled water soda pop", None, True),
+    (
+        "312",
+        "subsector",
+        "Beverage and Tobacco Product Manufacturing",
+        "Beverage and tobacco manufacturing subsector",
+        "31",
+        None,
+        None,
+        None,
+        "Beverage tobacco manufacturing",
+        None,
+        True,
+    ),
+    (
+        "3121",
+        "industry_group",
+        "Beverage Manufacturing",
+        "Beverage manufacturing",
+        "31",
+        "312",
+        None,
+        None,
+        "Beverage manufacturing",
+        None,
+        True,
+    ),
+    (
+        "31211",
+        "naics_industry",
+        "Soft Drink and Ice Manufacturing",
+        "Soft drink and ice manufacturing",
+        "31",
+        "312",
+        "3121",
+        None,
+        "Soft drinks ice manufacturing",
+        None,
+        True,
+    ),
+    (
+        "312111",
+        "national_industry",
+        "Soft Drink Manufacturing",
+        "Manufacturing soft drinks, bottled water, and ice",
+        "31",
+        "312",
+        "3121",
+        "31211",
+        "Soft drinks bottled water soda pop",
+        None,
+        True,
+    ),
     # Different sector - Retail
-    ("44", "sector", "Retail Trade", "Retail trade sector",
-     None, None, None, None, "Retail trade stores", None, True),
-    ("441", "subsector", "Motor Vehicle and Parts Dealers",
-     "Motor vehicle dealers",
-     "44", None, None, None, "Car dealers auto dealers", None, True),
+    (
+        "44",
+        "sector",
+        "Retail Trade",
+        "Retail trade sector",
+        None,
+        None,
+        None,
+        None,
+        "Retail trade stores",
+        None,
+        True,
+    ),
+    (
+        "441",
+        "subsector",
+        "Motor Vehicle and Parts Dealers",
+        "Motor vehicle dealers",
+        "44",
+        None,
+        None,
+        None,
+        "Car dealers auto dealers",
+        None,
+        True,
+    ),
 ]
 
 SAMPLE_INDEX_TERMS = [
@@ -76,6 +200,7 @@ SAMPLE_CROSS_REFERENCES = [
 
 
 # --- Fixtures ---
+
 
 @pytest.fixture
 def temp_db_path() -> Generator[Path, None, None]:
@@ -105,28 +230,37 @@ def populated_database(temp_db_path: Path) -> Generator[NAICSDatabase, None, Non
 
     # Insert sample NAICS codes
     for row in SAMPLE_NAICS_CODES:
-        db.connection.execute("""
+        db.connection.execute(
+            """
             INSERT INTO naics_nodes
             (node_code, level, title, description, sector_code, subsector_code,
              industry_group_code, naics_industry_code, raw_embedding_text,
              change_indicator, is_trilateral)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, row)
+        """,
+            row,
+        )
 
     # Insert sample index terms
     for row in SAMPLE_INDEX_TERMS:
-        db.connection.execute("""
+        db.connection.execute(
+            """
             INSERT INTO naics_index_terms (term_id, naics_code, index_term, term_normalized)
             VALUES (?, ?, ?, ?)
-        """, row)
+        """,
+            row,
+        )
 
     # Insert sample cross-references
     for row in SAMPLE_CROSS_REFERENCES:
-        db.connection.execute("""
+        db.connection.execute(
+            """
             INSERT INTO naics_cross_references
             (ref_id, source_code, reference_type, reference_text, target_code, excluded_activity)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, row)
+        """,
+            row,
+        )
 
     yield db
 
@@ -136,7 +270,7 @@ def populated_database(temp_db_path: Path) -> Generator[NAICSDatabase, None, Non
 @pytest.fixture
 def sample_naics_code():
     """Provide a sample NAICSCode for testing."""
-    from naics_mcp_server.models.naics_models import NAICSCode, NAICSLevel
+    from naics_mcp_server.models.naics_models import NAICSCode
 
     return NAICSCode(
         node_code="311111",
@@ -179,6 +313,7 @@ def sample_index_term():
 
 
 # --- Environment Fixtures ---
+
 
 @pytest.fixture
 def clean_env():

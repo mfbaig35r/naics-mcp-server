@@ -22,8 +22,8 @@ def setup_logging(debug: bool = False):
     level = logging.DEBUG if debug else logging.INFO
     logging.basicConfig(
         level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler()]
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler()],
     )
 
 
@@ -33,6 +33,7 @@ def cmd_serve(args):
     logger.info("Starting NAICS MCP Server...")
 
     from .server import mcp
+
     mcp.run()
 
 
@@ -78,10 +79,7 @@ def cmd_embeddings(args):
     cache_dir = Path.home() / ".cache" / "naics-mcp-server" / "models"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    embedder = TextEmbedder(
-        model_name=config.embedding_model,
-        cache_dir=cache_dir
-    )
+    embedder = TextEmbedder(model_name=config.embedding_model, cache_dir=cache_dir)
     embedder.load_model()
 
     search_engine = NAICSSearchEngine(db, embedder, config)
@@ -120,16 +118,14 @@ def cmd_search(args):
     strategy_map = {
         "hybrid": SearchStrategy.HYBRID,
         "semantic": SearchStrategy.SEMANTIC,
-        "lexical": SearchStrategy.LEXICAL
+        "lexical": SearchStrategy.LEXICAL,
     }
     strategy = strategy_map.get(args.strategy, SearchStrategy.HYBRID)
 
     logger.info(f"Searching for: '{args.query}'")
-    results = asyncio.run(search_engine.search(
-        query=args.query,
-        strategy=strategy,
-        limit=args.limit
-    ))
+    results = asyncio.run(
+        search_engine.search(query=args.query, strategy=strategy, limit=args.limit)
+    )
 
     print(f"\nResults for '{args.query}':")
     print(f"Strategy: {strategy.value}")
@@ -221,19 +217,13 @@ Examples:
   naics-mcp search "retail grocery"  Search for NAICS codes
   naics-mcp hierarchy 445110         Show hierarchy for a code
   naics-mcp stats                    Show database statistics
-        """
+        """,
     )
 
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug logging"
-    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 
     parser.add_argument(
-        "--database",
-        type=str,
-        help="Path to database file (overrides environment)"
+        "--database", type=str, help="Path to database file (overrides environment)"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -249,31 +239,22 @@ Examples:
     # embeddings command
     embed_parser = subparsers.add_parser("embeddings", help="Generate embeddings")
     embed_parser.add_argument(
-        "--rebuild",
-        action="store_true",
-        help="Force rebuild of all embeddings"
+        "--rebuild", action="store_true", help="Force rebuild of all embeddings"
     )
     embed_parser.set_defaults(func=cmd_embeddings)
 
     # search command
     search_parser = subparsers.add_parser("search", help="Perform a test search")
-    search_parser.add_argument(
-        "query",
-        type=str,
-        help="Search query"
-    )
+    search_parser.add_argument("query", type=str, help="Search query")
     search_parser.add_argument(
         "--strategy",
         type=str,
         default="hybrid",
         choices=["hybrid", "semantic", "lexical"],
-        help="Search strategy (default: hybrid)"
+        help="Search strategy (default: hybrid)",
     )
     search_parser.add_argument(
-        "--limit",
-        type=int,
-        default=10,
-        help="Maximum results (default: 10)"
+        "--limit", type=int, default=10, help="Maximum results (default: 10)"
     )
     search_parser.set_defaults(func=cmd_search)
 
@@ -283,11 +264,7 @@ Examples:
 
     # hierarchy command
     hierarchy_parser = subparsers.add_parser("hierarchy", help="Show code hierarchy")
-    hierarchy_parser.add_argument(
-        "code",
-        type=str,
-        help="NAICS code"
-    )
+    hierarchy_parser.add_argument("code", type=str, help="NAICS code")
     hierarchy_parser.set_defaults(func=cmd_hierarchy)
 
     # Parse arguments
@@ -307,6 +284,7 @@ Examples:
         logger.error(f"Error: {e}")
         if args.debug:
             import traceback
+
             traceback.print_exc()
         sys.exit(1)
 

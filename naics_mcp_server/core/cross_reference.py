@@ -11,9 +11,8 @@ Example from NAICS description:
     - prepared animal feeds for cattle, hogs, etc.--are classified in Industry 311119."
 """
 
-import re
-from typing import List, Dict, Optional, Tuple
 import logging
+import re
 
 from ..models.naics_models import CrossReference
 
@@ -33,36 +32,28 @@ class CrossReferenceParser:
 
         # Pattern to find cross-reference sections
         self.cross_ref_section_pattern = re.compile(
-            r'Cross-References?\s*\.?\s*(.*?)(?=\n\n|$)',
-            re.IGNORECASE | re.DOTALL
+            r"Cross-References?\s*\.?\s*(.*?)(?=\n\n|$)", re.IGNORECASE | re.DOTALL
         )
 
         # Pattern to extract individual cross-references
         # Matches: "- activity description--are classified in Industry XXXXXX"
         self.cross_ref_entry_pattern = re.compile(
-            r'-\s*(.+?)\s*[-–—]+\s*(?:are|is)\s+classified\s+in\s+'
-            r'(?:Industry|U\.?S\.?\s*Industry|NAICS)?\s*(\d{5,6})',
-            re.IGNORECASE
+            r"-\s*(.+?)\s*[-–—]+\s*(?:are|is)\s+classified\s+in\s+"
+            r"(?:Industry|U\.?S\.?\s*Industry|NAICS)?\s*(\d{5,6})",
+            re.IGNORECASE,
         )
 
         # Alternative pattern for simpler format
         # Matches: "See Industry XXXXXX"
-        self.see_also_pattern = re.compile(
-            r'See\s+(?:Industry|NAICS)?\s*(\d{5,6})',
-            re.IGNORECASE
-        )
+        self.see_also_pattern = re.compile(r"See\s+(?:Industry|NAICS)?\s*(\d{5,6})", re.IGNORECASE)
 
         # Pattern for "except" clauses
         self.except_pattern = re.compile(
-            r'except\s+(?:those|establishments)\s+(?:engaged\s+in\s+)?(.+?)(?:\s*[-–—]+\s*(?:are|is)\s+classified|\s*$)',
-            re.IGNORECASE
+            r"except\s+(?:those|establishments)\s+(?:engaged\s+in\s+)?(.+?)(?:\s*[-–—]+\s*(?:are|is)\s+classified|\s*$)",
+            re.IGNORECASE,
         )
 
-    def parse_description(
-        self,
-        source_code: str,
-        description: str
-    ) -> List[CrossReference]:
+    def parse_description(self, source_code: str, description: str) -> list[CrossReference]:
         """
         Parse cross-references from a NAICS description.
 
@@ -88,29 +79,33 @@ class CrossReferenceParser:
                 excluded_activity = match.group(1).strip()
                 target_code = match.group(2).strip()
 
-                cross_refs.append(CrossReference(
-                    source_code=source_code,
-                    reference_type="excludes",
-                    reference_text=match.group(0).strip(),
-                    target_code=target_code,
-                    excluded_activity=excluded_activity
-                ))
+                cross_refs.append(
+                    CrossReference(
+                        source_code=source_code,
+                        reference_type="excludes",
+                        reference_text=match.group(0).strip(),
+                        target_code=target_code,
+                        excluded_activity=excluded_activity,
+                    )
+                )
 
         # Also check for "See also" references throughout the text
         for match in self.see_also_pattern.finditer(description):
             target_code = match.group(1).strip()
             # Avoid duplicates
             if not any(cr.target_code == target_code for cr in cross_refs):
-                cross_refs.append(CrossReference(
-                    source_code=source_code,
-                    reference_type="see_also",
-                    reference_text=match.group(0).strip(),
-                    target_code=target_code
-                ))
+                cross_refs.append(
+                    CrossReference(
+                        source_code=source_code,
+                        reference_type="see_also",
+                        reference_text=match.group(0).strip(),
+                        target_code=target_code,
+                    )
+                )
 
         return cross_refs
 
-    def parse_excludes_only(self, description: str) -> List[Tuple[str, str]]:
+    def parse_excludes_only(self, description: str) -> list[tuple[str, str]]:
         """
         Extract just the excluded activities and target codes.
 
@@ -129,10 +124,7 @@ class CrossReferenceParser:
             section_text = section_match.group(1)
 
             for match in self.cross_ref_entry_pattern.finditer(section_text):
-                excludes.append((
-                    match.group(1).strip(),
-                    match.group(2).strip()
-                ))
+                excludes.append((match.group(1).strip(), match.group(2).strip()))
 
         return excludes
 
@@ -155,11 +147,7 @@ class CrossReferenceService:
         self.database = database
         self.parser = CrossReferenceParser()
 
-    async def check_exclusions(
-        self,
-        query: str,
-        naics_code: str
-    ) -> List[Dict[str, str]]:
+    async def check_exclusions(self, query: str, naics_code: str) -> list[dict[str, str]]:
         """
         Check if a query matches any exclusion criteria for a code.
 
@@ -183,20 +171,22 @@ class CrossReferenceService:
 
                 # Calculate word overlap
                 overlap = excluded_words & query_words
-                if len(overlap) >= 2 or any(word in query_lower for word in excluded_words if len(word) > 5):
-                    matches.append({
-                        "excluded_activity": cr.excluded_activity,
-                        "target_code": cr.target_code,
-                        "warning": f"This activity may be better classified under {cr.target_code}"
-                    })
+                if len(overlap) >= 2 or any(
+                    word in query_lower for word in excluded_words if len(word) > 5
+                ):
+                    matches.append(
+                        {
+                            "excluded_activity": cr.excluded_activity,
+                            "target_code": cr.target_code,
+                            "warning": f"This activity may be better classified under {cr.target_code}",
+                        }
+                    )
 
         return matches
 
     async def find_correct_classification(
-        self,
-        activity_description: str,
-        limit: int = 5
-    ) -> List[Dict[str, str]]:
+        self, activity_description: str, limit: int = 5
+    ) -> list[dict[str, str]]:
         """
         Search cross-references to find where an activity should be classified.
 
@@ -209,8 +199,7 @@ class CrossReferenceService:
         """
         # Search cross-references for matching activities
         matching_refs = await self.database.search_cross_references(
-            activity_description,
-            limit=limit
+            activity_description, limit=limit
         )
 
         results = []
@@ -220,20 +209,19 @@ class CrossReferenceService:
                 target_code = await self.database.get_by_code(ref.target_code)
                 target_title = target_code.title if target_code else "Unknown"
 
-                results.append({
-                    "activity": ref.excluded_activity or ref.reference_text,
-                    "recommended_code": ref.target_code,
-                    "recommended_title": target_title,
-                    "excluded_from": ref.source_code,
-                    "reference_text": ref.reference_text
-                })
+                results.append(
+                    {
+                        "activity": ref.excluded_activity or ref.reference_text,
+                        "recommended_code": ref.target_code,
+                        "recommended_title": target_title,
+                        "excluded_from": ref.source_code,
+                        "reference_text": ref.reference_text,
+                    }
+                )
 
         return results
 
-    async def get_exclusion_warnings(
-        self,
-        naics_code: str
-    ) -> List[str]:
+    async def get_exclusion_warnings(self, naics_code: str) -> list[str]:
         """
         Get human-readable exclusion warnings for a code.
 
@@ -258,10 +246,7 @@ class CrossReferenceService:
         return warnings
 
     def calculate_exclusion_penalty(
-        self,
-        query: str,
-        cross_refs: List[CrossReference],
-        base_penalty: float = 0.7
+        self, query: str, cross_refs: list[CrossReference], base_penalty: float = 0.7
     ) -> float:
         """
         Calculate confidence penalty based on exclusion matches.

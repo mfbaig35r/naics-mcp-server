@@ -12,27 +12,30 @@ import functools
 import logging
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
 
 # --- Error Categories ---
 
+
 class ErrorCategory(str, Enum):
     """Categories of errors for handling decisions."""
 
-    VALIDATION = "validation"      # User input error (400)
-    NOT_FOUND = "not_found"        # Resource not found (404)
-    TRANSIENT = "transient"        # Temporary failure, retry (503)
-    PERMANENT = "permanent"        # Permanent failure, don't retry (500)
-    TIMEOUT = "timeout"            # Operation timed out (504)
+    VALIDATION = "validation"  # User input error (400)
+    NOT_FOUND = "not_found"  # Resource not found (404)
+    TRANSIENT = "transient"  # Temporary failure, retry (503)
+    PERMANENT = "permanent"  # Permanent failure, don't retry (500)
+    TIMEOUT = "timeout"  # Operation timed out (504)
     CONFIGURATION = "configuration"  # Config error, fail fast (500)
 
 
 # --- Base Exception ---
+
 
 class NAICSException(Exception):
     """
@@ -50,8 +53,8 @@ class NAICSException(Exception):
         message: str,
         category: ErrorCategory = ErrorCategory.PERMANENT,
         retryable: bool = False,
-        details: Optional[Dict[str, Any]] = None,
-        cause: Optional[Exception] = None
+        details: dict[str, Any] | None = None,
+        cause: Exception | None = None,
     ):
         super().__init__(message)
         self.message = message
@@ -60,7 +63,7 @@ class NAICSException(Exception):
         self.details = details or {}
         self.cause = cause
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API responses."""
         result = {
             "error": self.message,
@@ -79,6 +82,7 @@ class NAICSException(Exception):
 
 # --- Specific Exceptions ---
 
+
 class DatabaseError(NAICSException):
     """Database connection or query errors."""
 
@@ -86,15 +90,15 @@ class DatabaseError(NAICSException):
         self,
         message: str,
         retryable: bool = True,
-        details: Optional[Dict[str, Any]] = None,
-        cause: Optional[Exception] = None
+        details: dict[str, Any] | None = None,
+        cause: Exception | None = None,
     ):
         super().__init__(
             message=message,
             category=ErrorCategory.TRANSIENT if retryable else ErrorCategory.PERMANENT,
             retryable=retryable,
             details=details,
-            cause=cause
+            cause=cause,
         )
 
 
@@ -104,15 +108,10 @@ class ConnectionError(DatabaseError):
     def __init__(
         self,
         message: str = "Failed to connect to database",
-        details: Optional[Dict[str, Any]] = None,
-        cause: Optional[Exception] = None
+        details: dict[str, Any] | None = None,
+        cause: Exception | None = None,
     ):
-        super().__init__(
-            message=message,
-            retryable=True,
-            details=details,
-            cause=cause
-        )
+        super().__init__(message=message, retryable=True, details=details, cause=cause)
 
 
 class QueryError(DatabaseError):
@@ -121,9 +120,9 @@ class QueryError(DatabaseError):
     def __init__(
         self,
         message: str,
-        query: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-        cause: Optional[Exception] = None
+        query: str | None = None,
+        details: dict[str, Any] | None = None,
+        cause: Exception | None = None,
     ):
         details = details or {}
         if query:
@@ -133,7 +132,7 @@ class QueryError(DatabaseError):
             message=message,
             retryable=False,  # Query errors typically aren't retryable
             details=details,
-            cause=cause
+            cause=cause,
         )
 
 
@@ -143,9 +142,9 @@ class ValidationError(NAICSException):
     def __init__(
         self,
         message: str,
-        field: Optional[str] = None,
-        value: Optional[Any] = None,
-        constraints: Optional[Dict[str, Any]] = None
+        field: str | None = None,
+        value: Any | None = None,
+        constraints: dict[str, Any] | None = None,
     ):
         details = {}
         if field:
@@ -157,31 +156,20 @@ class ValidationError(NAICSException):
             details["constraints"] = constraints
 
         super().__init__(
-            message=message,
-            category=ErrorCategory.VALIDATION,
-            retryable=False,
-            details=details
+            message=message, category=ErrorCategory.VALIDATION, retryable=False, details=details
         )
 
 
 class NotFoundError(NAICSException):
     """Resource not found error."""
 
-    def __init__(
-        self,
-        resource_type: str,
-        identifier: str,
-        message: Optional[str] = None
-    ):
+    def __init__(self, resource_type: str, identifier: str, message: str | None = None):
         msg = message or f"{resource_type} not found: {identifier}"
         super().__init__(
             message=msg,
             category=ErrorCategory.NOT_FOUND,
             retryable=False,
-            details={
-                "resource_type": resource_type,
-                "identifier": identifier
-            }
+            details={"resource_type": resource_type, "identifier": identifier},
         )
 
 
@@ -189,20 +177,14 @@ class ConfigurationError(NAICSException):
     """Configuration or setup error - requires intervention."""
 
     def __init__(
-        self,
-        message: str,
-        config_key: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None
+        self, message: str, config_key: str | None = None, details: dict[str, Any] | None = None
     ):
         details = details or {}
         if config_key:
             details["config_key"] = config_key
 
         super().__init__(
-            message=message,
-            category=ErrorCategory.CONFIGURATION,
-            retryable=False,
-            details=details
+            message=message, category=ErrorCategory.CONFIGURATION, retryable=False, details=details
         )
 
 
@@ -213,15 +195,15 @@ class EmbeddingError(NAICSException):
         self,
         message: str,
         retryable: bool = True,
-        details: Optional[Dict[str, Any]] = None,
-        cause: Optional[Exception] = None
+        details: dict[str, Any] | None = None,
+        cause: Exception | None = None,
     ):
         super().__init__(
             message=message,
             category=ErrorCategory.TRANSIENT if retryable else ErrorCategory.PERMANENT,
             retryable=retryable,
             details=details,
-            cause=cause
+            cause=cause,
         )
 
 
@@ -229,10 +211,7 @@ class TimeoutError(NAICSException):
     """Operation timed out."""
 
     def __init__(
-        self,
-        operation: str,
-        timeout_seconds: float,
-        details: Optional[Dict[str, Any]] = None
+        self, operation: str, timeout_seconds: float, details: dict[str, Any] | None = None
     ):
         details = details or {}
         details["operation"] = operation
@@ -242,7 +221,7 @@ class TimeoutError(NAICSException):
             message=f"Operation '{operation}' timed out after {timeout_seconds}s",
             category=ErrorCategory.TIMEOUT,
             retryable=True,
-            details=details
+            details=details,
         )
 
 
@@ -252,10 +231,10 @@ class SearchError(NAICSException):
     def __init__(
         self,
         message: str,
-        query: Optional[str] = None,
-        strategy: Optional[str] = None,
+        query: str | None = None,
+        strategy: str | None = None,
         retryable: bool = True,
-        cause: Optional[Exception] = None
+        cause: Exception | None = None,
     ):
         details = {}
         if query:
@@ -268,11 +247,12 @@ class SearchError(NAICSException):
             category=ErrorCategory.TRANSIENT if retryable else ErrorCategory.PERMANENT,
             retryable=retryable,
             details=details,
-            cause=cause
+            cause=cause,
         )
 
 
 # --- Retry Configuration ---
+
 
 @dataclass
 class RetryConfig:
@@ -289,7 +269,7 @@ class RetryConfig:
 
     def get_delay(self, attempt: int) -> float:
         """Calculate delay for given attempt number (0-indexed)."""
-        delay = self.base_delay * (self.exponential_base ** attempt)
+        delay = self.base_delay * (self.exponential_base**attempt)
         delay = min(delay, self.max_delay)
 
         if self.jitter:
@@ -311,8 +291,7 @@ T = TypeVar("T")
 
 
 def retry_sync(
-    config: RetryConfig = DEFAULT_RETRY,
-    on_retry: Optional[Callable[[Exception, int], None]] = None
+    config: RetryConfig = DEFAULT_RETRY, on_retry: Callable[[Exception, int], None] | None = None
 ):
     """
     Decorator for synchronous functions with retry logic.
@@ -321,6 +300,7 @@ def retry_sync(
         config: Retry configuration
         on_retry: Optional callback called before each retry
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> T:
@@ -349,7 +329,7 @@ def retry_sync(
                             f"All {config.max_attempts} attempts failed for {func.__name__}: {e}"
                         )
 
-                except Exception as e:
+                except Exception:
                     # Non-retryable exception, raise immediately
                     raise
 
@@ -357,12 +337,12 @@ def retry_sync(
             raise last_exception
 
         return wrapper
+
     return decorator
 
 
 def retry_async(
-    config: RetryConfig = DEFAULT_RETRY,
-    on_retry: Optional[Callable[[Exception, int], None]] = None
+    config: RetryConfig = DEFAULT_RETRY, on_retry: Callable[[Exception, int], None] | None = None
 ):
     """
     Decorator for async functions with retry logic.
@@ -371,6 +351,7 @@ def retry_async(
         config: Retry configuration
         on_retry: Optional callback called before each retry
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
         async def wrapper(*args, **kwargs) -> T:
@@ -399,7 +380,7 @@ def retry_async(
                             f"All {config.max_attempts} attempts failed for {func.__name__}: {e}"
                         )
 
-                except Exception as e:
+                except Exception:
                     # Non-retryable exception, raise immediately
                     raise
 
@@ -407,10 +388,12 @@ def retry_async(
             raise last_exception
 
         return wrapper
+
     return decorator
 
 
 # --- Error Response Builder ---
+
 
 @dataclass
 class ErrorResponse:
@@ -419,13 +402,13 @@ class ErrorResponse:
     error: str
     category: str
     retryable: bool
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
     # Optional fields for specific contexts
-    fallback_used: Optional[str] = None
-    partial_results: Optional[List[Any]] = None
+    fallback_used: str | None = None
+    partial_results: list[Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API response."""
         result = {
             "error": self.error,
@@ -448,8 +431,8 @@ class ErrorResponse:
     def from_exception(
         cls,
         exc: Exception,
-        fallback_used: Optional[str] = None,
-        partial_results: Optional[List[Any]] = None
+        fallback_used: str | None = None,
+        partial_results: list[Any] | None = None,
     ) -> "ErrorResponse":
         """Create ErrorResponse from an exception."""
         if isinstance(exc, NAICSException):
@@ -459,7 +442,7 @@ class ErrorResponse:
                 retryable=exc.retryable,
                 details=exc.details,
                 fallback_used=fallback_used,
-                partial_results=partial_results
+                partial_results=partial_results,
             )
         else:
             # Generic exception
@@ -468,19 +451,16 @@ class ErrorResponse:
                 category=ErrorCategory.PERMANENT.value,
                 retryable=False,
                 fallback_used=fallback_used,
-                partial_results=partial_results
+                partial_results=partial_results,
             )
 
 
 # --- Graceful Degradation Helper ---
 
+
 async def with_fallback(
-    primary: Callable,
-    fallback: Callable,
-    fallback_name: str,
-    *args,
-    **kwargs
-) -> tuple[Any, Optional[str]]:
+    primary: Callable, fallback: Callable, fallback_name: str, *args, **kwargs
+) -> tuple[Any, str | None]:
     """
     Execute primary function with fallback on failure.
 
@@ -501,10 +481,8 @@ async def with_fallback(
 
 
 def handle_tool_error(
-    exc: Exception,
-    operation: str,
-    fallback_result: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    exc: Exception, operation: str, fallback_result: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """
     Standard error handler for MCP tools.
 

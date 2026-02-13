@@ -5,14 +5,15 @@ Tests Pydantic-based configuration with validation and environment variable load
 """
 
 import os
-import pytest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from naics_mcp_server.config import (
+    AppConfig,
     SearchConfig,
     ServerConfig,
-    AppConfig,
     get_config,
     get_search_config,
     get_server_config,

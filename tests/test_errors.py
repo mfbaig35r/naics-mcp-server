@@ -4,31 +4,28 @@ Unit tests for error handling module.
 Tests custom exceptions, retry logic, and error response handling.
 """
 
-import asyncio
 import pytest
-import time
-from unittest.mock import MagicMock, patch
 
 from naics_mcp_server.core.errors import (
-    NAICSException,
-    DatabaseError,
-    ConnectionError,
-    QueryError,
-    ValidationError,
-    NotFoundError,
-    ConfigurationError,
-    EmbeddingError,
-    TimeoutError,
-    SearchError,
-    ErrorCategory,
-    RetryConfig,
-    ErrorResponse,
-    retry_sync,
-    retry_async,
-    with_fallback,
-    handle_tool_error,
     DATABASE_RETRY,
     EMBEDDING_RETRY,
+    ConfigurationError,
+    ConnectionError,
+    DatabaseError,
+    EmbeddingError,
+    ErrorCategory,
+    ErrorResponse,
+    NAICSException,
+    NotFoundError,
+    QueryError,
+    RetryConfig,
+    SearchError,
+    TimeoutError,
+    ValidationError,
+    handle_tool_error,
+    retry_async,
+    retry_sync,
+    with_fallback,
 )
 
 
@@ -54,7 +51,7 @@ class TestNAICSException:
             message="Test error",
             category=ErrorCategory.TRANSIENT,
             retryable=True,
-            details={"key": "value"}
+            details={"key": "value"},
         )
 
         assert exc.message == "Test error"
@@ -85,7 +82,7 @@ class TestNAICSException:
             message="Test error",
             category=ErrorCategory.VALIDATION,
             retryable=False,
-            details={"field": "code"}
+            details={"field": "code"},
         )
 
         result = exc.to_dict()
@@ -148,11 +145,7 @@ class TestValidationError:
 
     def test_includes_field_info(self):
         """Validation error should include field information."""
-        exc = ValidationError(
-            message="Invalid format",
-            field="naics_code",
-            value="abc123"
-        )
+        exc = ValidationError(message="Invalid format", field="naics_code", value="abc123")
 
         assert exc.details["field"] == "naics_code"
         assert "abc123" in exc.details["value_preview"]
@@ -171,10 +164,7 @@ class TestNotFoundError:
 
     def test_includes_resource_info(self):
         """Not found error should include resource details."""
-        exc = NotFoundError(
-            resource_type="NAICS code",
-            identifier="999999"
-        )
+        exc = NotFoundError(resource_type="NAICS code", identifier="999999")
 
         assert "NAICS code" in exc.message
         assert "999999" in exc.message
@@ -188,10 +178,7 @@ class TestConfigurationError:
 
     def test_includes_config_key(self):
         """Configuration error should include config key."""
-        exc = ConfigurationError(
-            message="Missing setting",
-            config_key="database_path"
-        )
+        exc = ConfigurationError(message="Missing setting", config_key="database_path")
 
         assert exc.details["config_key"] == "database_path"
         assert exc.retryable is False
@@ -234,11 +221,7 @@ class TestSearchError:
 
     def test_includes_query_info(self):
         """Search error should include query details."""
-        exc = SearchError(
-            message="Search failed",
-            query="dog food",
-            strategy="hybrid"
-        )
+        exc = SearchError(message="Search failed", query="dog food", strategy="hybrid")
 
         assert exc.details["query_preview"] == "dog food"
         assert exc.details["strategy"] == "hybrid"
@@ -310,6 +293,7 @@ class TestRetrySyncDecorator:
 
     def test_retry_on_success(self):
         """Should return result on success."""
+
         @retry_sync(RetryConfig(max_attempts=3))
         def successful_func():
             return "success"
@@ -355,6 +339,7 @@ class TestRetryAsyncDecorator:
     @pytest.mark.asyncio
     async def test_async_retry_on_success(self):
         """Should return result on success."""
+
         @retry_async(RetryConfig(max_attempts=3))
         async def successful_func():
             return "success"
@@ -386,10 +371,7 @@ class TestErrorResponse:
     def test_error_response_creation(self):
         """Error response should be created with all fields."""
         response = ErrorResponse(
-            error="Test error",
-            category="transient",
-            retryable=True,
-            details={"key": "value"}
+            error="Test error", category="transient", retryable=True, details={"key": "value"}
         )
 
         assert response.error == "Test error"
@@ -400,10 +382,7 @@ class TestErrorResponse:
     def test_to_dict(self):
         """Error response should convert to dictionary."""
         response = ErrorResponse(
-            error="Test error",
-            category="validation",
-            retryable=False,
-            fallback_used="lexical"
+            error="Test error", category="validation", retryable=False, fallback_used="lexical"
         )
 
         result = response.to_dict()
@@ -438,6 +417,7 @@ class TestWithFallback:
     @pytest.mark.asyncio
     async def test_primary_success(self):
         """Should return primary result when successful."""
+
         async def primary():
             return "primary result"
 
@@ -452,6 +432,7 @@ class TestWithFallback:
     @pytest.mark.asyncio
     async def test_fallback_on_failure(self):
         """Should use fallback when primary fails."""
+
         async def primary():
             raise ValueError("Primary failed")
 
@@ -466,6 +447,7 @@ class TestWithFallback:
     @pytest.mark.asyncio
     async def test_raises_when_both_fail(self):
         """Should raise when both primary and fallback fail."""
+
         async def primary():
             raise ValueError("Primary failed")
 

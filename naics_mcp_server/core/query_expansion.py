@@ -7,8 +7,9 @@ and industry-specific terms to improve search coverage.
 NAICS-specific vocabulary focuses on industry classification concepts.
 """
 
-from typing import List, Dict, Set, Any
 import re
+from typing import Any
+
 from ..models.search_models import QueryTerms
 
 
@@ -29,50 +30,40 @@ class QueryExpander:
             "manufacturing": ["production", "fabrication", "making", "processing"],
             "factory": ["plant", "mill", "workshop", "facility"],
             "assembly": ["construction", "building", "putting together"],
-
             # Retail/Wholesale
             "retail": ["selling", "store", "shop", "merchant"],
             "wholesale": ["distribution", "distributor", "bulk sales"],
             "store": ["shop", "outlet", "retailer", "merchant"],
-
             # Services
             "service": ["services", "provider", "consulting"],
             "consulting": ["advisory", "professional services", "consultancy"],
             "repair": ["maintenance", "service", "fixing"],
-
             # Construction
             "construction": ["building", "contractor", "development"],
             "contractor": ["builder", "construction company"],
-
             # Healthcare
             "healthcare": ["medical", "health services", "health care"],
             "hospital": ["medical center", "health facility", "clinic"],
             "doctor": ["physician", "medical practitioner", "healthcare provider"],
-
             # Finance
             "bank": ["banking", "financial institution", "depository"],
             "insurance": ["insurer", "underwriting", "coverage"],
             "investment": ["investing", "securities", "asset management"],
-
             # Technology
             "software": ["programming", "application", "computer program"],
             "technology": ["tech", "IT", "information technology"],
             "computer": ["computing", "IT", "data processing"],
-
             # Food/Agriculture
             "restaurant": ["food service", "eatery", "dining"],
             "farm": ["farming", "agriculture", "agricultural"],
             "food": ["foodstuff", "provisions", "edible"],
-
             # Transportation
             "trucking": ["freight", "hauling", "transportation"],
             "shipping": ["freight", "cargo", "transport"],
             "airline": ["air carrier", "aviation", "air transport"],
-
             # Real Estate
             "real estate": ["property", "realty", "real property"],
             "rental": ["leasing", "letting", "renting"],
-
             # Professional Services
             "lawyer": ["attorney", "legal services", "law firm"],
             "accountant": ["accounting", "CPA", "bookkeeping"],
@@ -92,7 +83,6 @@ class QueryExpander:
             "corp": "corporation",
             "inc": "incorporated",
             "llc": "limited liability company",
-
             # Industry abbreviations
             "it": "information technology",
             "hr": "human resources",
@@ -101,15 +91,12 @@ class QueryExpander:
             "oem": "original equipment manufacturer",
             "b2b": "business to business",
             "b2c": "business to consumer",
-
             # Healthcare
             "rx": "pharmaceutical",
             "md": "medical doctor",
             "dds": "dental",
-
             # Real estate
             "reit": "real estate investment trust",
-
             # Food
             "f&b": "food and beverage",
             "qsr": "quick service restaurant",
@@ -178,7 +165,7 @@ class QueryExpander:
 
         return terms
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> list[str]:
         """
         Tokenize text into meaningful words.
 
@@ -189,18 +176,14 @@ class QueryExpander:
             List of tokens
         """
         # Split on whitespace and punctuation, keep alphanumeric
-        tokens = re.findall(r'\b\w+\b', text.lower())
+        tokens = re.findall(r"\b\w+\b", text.lower())
 
         # Filter out very short tokens (likely not meaningful)
         tokens = [t for t in tokens if len(t) > 1]
 
         return tokens
 
-    def add_domain_knowledge(
-        self,
-        category: str,
-        terms: Dict[str, List[str]]
-    ) -> None:
+    def add_domain_knowledge(self, category: str, terms: dict[str, list[str]]) -> None:
         """
         Add domain-specific knowledge to the expander.
 
@@ -233,26 +216,26 @@ class SmartQueryParser:
         # Patterns that suggest exact match preference
         self.exact_patterns = [
             r'^".*"$',  # Quoted phrases
-            r'^\d{2,6}$',  # NAICS codes (2-6 digits)
-            r'^naics[\d\s]+$',  # Explicit NAICS codes
-            r'^sector\s+\d+$',  # Sector references
+            r"^\d{2,6}$",  # NAICS codes (2-6 digits)
+            r"^naics[\d\s]+$",  # Explicit NAICS codes
+            r"^sector\s+\d+$",  # Sector references
         ]
 
         # Patterns that suggest semantic search
         self.semantic_patterns = [
-            r'\b(like|similar to|type of|kind of)\b',
-            r'\b(business that|company that|industry for)\b',
-            r'\b(engaged in|specializing in|focused on)\b',
-            r'\?$',  # Questions
+            r"\b(like|similar to|type of|kind of)\b",
+            r"\b(business that|company that|industry for)\b",
+            r"\b(engaged in|specializing in|focused on)\b",
+            r"\?$",  # Questions
         ]
 
         # Patterns that indicate business description
         self.business_patterns = [
-            r'\b(we|our company|my business|i run)\b',
-            r'\b(provides?|offers?|sells?|makes?|produces?)\b',
+            r"\b(we|our company|my business|i run)\b",
+            r"\b(provides?|offers?|sells?|makes?|produces?)\b",
         ]
 
-    def parse_intent(self, query: str) -> Dict[str, Any]:
+    def parse_intent(self, query: str) -> dict[str, Any]:
         """
         Parse query to understand search intent.
 
@@ -292,7 +275,7 @@ class SmartQueryParser:
                 break
 
         # Check for NAICS code patterns
-        if re.search(r'\b\d{2,6}\b', query):
+        if re.search(r"\b\d{2,6}\b", query):
             intent["has_code"] = True
 
         # Default to semantic if no clear signal

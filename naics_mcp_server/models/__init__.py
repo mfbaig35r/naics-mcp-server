@@ -2,22 +2,15 @@
 Data models for NAICS MCP Server.
 """
 
-from .naics_models import (
-    NAICSLevel,
-    NAICSCode,
-    CrossReference,
-    IndexTerm,
-    SICCrosswalk
-)
-
+from .naics_models import CrossReference, IndexTerm, NAICSCode, NAICSLevel, SICCrosswalk
 from .search_models import (
-    SearchStrategy,
+    ClassificationResult,
     ConfidenceScore,
     NAICSMatch,
-    QueryTerms,
     QueryMetadata,
+    QueryTerms,
     SearchResults,
-    ClassificationResult
+    SearchStrategy,
 )
 
 __all__ = [

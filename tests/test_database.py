@@ -4,12 +4,14 @@ Unit tests for NAICSDatabase.
 Tests database operations including CRUD, search, hierarchy, and cross-references.
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from naics_mcp_server.core.database import NAICSDatabase, get_database
 from naics_mcp_server.core.errors import DatabaseError
-from naics_mcp_server.models.naics_models import NAICSCode, NAICSLevel, CrossReference, IndexTerm
+from naics_mcp_server.models.naics_models import CrossReference, IndexTerm, NAICSLevel
+from tests import conftest
 
 
 class TestNAICSDatabaseConnection:
@@ -49,6 +51,7 @@ class TestNAICSDatabaseConnection:
 
         with pytest.raises(DatabaseError, match="Database not connected"):
             import asyncio
+
             asyncio.run(db.get_by_code("311111"))
 
 
@@ -266,7 +269,9 @@ class TestGetHierarchy:
         """Should return full hierarchy path for national industry code."""
         hierarchy = await populated_database.get_hierarchy("311111")
 
-        assert len(hierarchy) == 5  # sector, subsector, industry_group, naics_industry, national_industry
+        assert (
+            len(hierarchy) == 5
+        )  # sector, subsector, industry_group, naics_industry, national_industry
 
         # Check order: most general to most specific
         levels = [c.level for c in hierarchy]
@@ -385,9 +390,10 @@ class TestGetStatistics:
         assert "total_index_terms" in stats
         assert "total_cross_references" in stats
 
-        assert stats["total_codes"] == len(
-            [c for c in conftest.SAMPLE_NAICS_CODES if True]
-        ) or stats["total_codes"] > 0  # Fallback check
+        assert (
+            stats["total_codes"] == len([c for c in conftest.SAMPLE_NAICS_CODES if True])
+            or stats["total_codes"] > 0
+        )  # Fallback check
 
     @pytest.mark.asyncio
     async def test_statistics_counts_by_level(self, populated_database: NAICSDatabase):
@@ -454,7 +460,3 @@ class TestEdgeCases:
         """Should handle whitespace-only search terms."""
         results = await populated_database.search_by_text(["   "])
         assert isinstance(results, list)
-
-
-# Import conftest for reference in statistics test
-from tests import conftest

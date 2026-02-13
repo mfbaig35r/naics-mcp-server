@@ -6,58 +6,56 @@ An intelligent industry classification service for NAICS 2022,
 built with clarity and purpose.
 """
 
-import asyncio
+import logging
 import os
-from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Dict, Any, List, Optional
+from datetime import UTC
+from pathlib import Path
+from typing import Any
 
-from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.fastmcp import Context, FastMCP
 from pydantic import BaseModel, Field
 
 from .config import SearchConfig, ServerConfig
-from .core.database import NAICSDatabase
-from .core.embeddings import TextEmbedder
-from .core.search_engine import NAICSSearchEngine, generate_search_guidance
 from .core.classification_workbook import ClassificationWorkbook, FormType
 from .core.cross_reference import CrossReferenceService
+from .core.database import NAICSDatabase
+from .core.embeddings import TextEmbedder
+from .core.errors import NAICSException, ValidationError, handle_tool_error
+from .core.health import HealthChecker
+from .core.search_engine import NAICSSearchEngine, generate_search_guidance
+from .core.validation import (
+    validate_batch_codes,
+    validate_batch_descriptions,
+    validate_confidence,
+    validate_description,
+    validate_limit,
+    validate_search_query,
+    validate_strategy,
+)
 from .models.search_models import SearchStrategy
 from .observability.audit import SearchAuditLog, SearchEvent
 from .observability.logging import (
-    setup_logging,
-    get_logger,
-    set_request_context,
     generate_request_id,
-    sanitize_text,
-    log_server_start,
+    get_logger,
     log_server_ready,
     log_server_shutdown,
-)
-from .core.errors import (
-    NAICSException, DatabaseError, NotFoundError, ValidationError,
-    SearchError, handle_tool_error
-)
-from .core.health import HealthChecker, HealthStatus
-from .core.validation import (
-    validate_description,
-    validate_naics_code,
-    validate_search_query,
-    validate_limit,
-    validate_confidence,
-    validate_batch_descriptions,
-    validate_batch_codes,
-    validate_strategy,
-    ValidationConfig,
+    log_server_start,
+    sanitize_text,
+    set_request_context,
+    setup_logging,
 )
 from .tools.workbook_tools import (
-    WorkbookWriteRequest, WorkbookSearchRequest, WorkbookTemplateRequest
+    WorkbookSearchRequest,
+    WorkbookTemplateRequest,
+    WorkbookWriteRequest,
 )
 
 # Configure structured logging
 setup_logging(
     level=os.getenv("NAICS_LOG_LEVEL", "INFO"),
     format=os.getenv("NAICS_LOG_FORMAT", "text"),  # Use "json" for production
-    log_file=os.getenv("NAICS_LOG_FILE")
+    log_file=os.getenv("NAICS_LOG_FILE"),
 )
 logger = get_logger(__name__)
 
@@ -74,7 +72,7 @@ class AppContext:
         audit_log: SearchAuditLog,
         cross_ref_service: CrossReferenceService,
         classification_workbook: ClassificationWorkbook,
-        health_checker: HealthChecker
+        health_checker: HealthChecker,
     ):
         self.database = database
         self.embedder = embedder
@@ -92,18 +90,14 @@ class SearchRequest(BaseModel):
     query: str = Field(description="Natural language description of the business or activity")
     strategy: str = Field(
         default="hybrid",
-        description="Search strategy: 'hybrid' (best match), 'semantic' (meaning), or 'lexical' (exact)"
+        description="Search strategy: 'hybrid' (best match), 'semantic' (meaning), or 'lexical' (exact)",
     )
     limit: int = Field(default=10, description="Maximum results to return", ge=1, le=50)
     min_confidence: float = Field(
-        default=0.3,
-        description="Minimum confidence threshold (0-1)",
-        ge=0.0,
-        le=1.0
+        default=0.3, description="Minimum confidence threshold (0-1)", ge=0.0, le=1.0
     )
     include_cross_refs: bool = Field(
-        default=True,
-        description="Include cross-reference checks for exclusions"
+        default=True, description="Include cross-reference checks for exclusions"
     )
 
 
@@ -112,25 +106,25 @@ class NAICSResult(BaseModel):
 
     code: str
     title: str
-    description: Optional[str] = None
+    description: str | None = None
     level: str
     confidence: float
-    explanation: Optional[str] = None
-    hierarchy: List[str]
-    matched_index_terms: List[str] = []
-    exclusion_warnings: List[str] = []
+    explanation: str | None = None
+    hierarchy: list[str]
+    matched_index_terms: list[str] = []
+    exclusion_warnings: list[str] = []
 
 
 class SearchResponse(BaseModel):
     """Response from NAICS search."""
 
     query: str
-    results: List[NAICSResult]
+    results: list[NAICSResult]
     expanded: bool
     strategy_used: str
     total_found: int
     search_time_ms: int
-    guidance: List[str] = Field(default_factory=list)
+    guidance: list[str] = Field(default_factory=list)
 
 
 class SimilarityRequest(BaseModel):
@@ -146,13 +140,15 @@ class ClassifyRequest(BaseModel):
 
     description: str = Field(description="Business or activity description")
     include_reasoning: bool = Field(default=True, description="Include detailed reasoning")
-    check_cross_refs: bool = Field(default=True, description="Check cross-references for exclusions")
+    check_cross_refs: bool = Field(
+        default=True, description="Check cross-references for exclusions"
+    )
 
 
 class BatchClassifyRequest(BaseModel):
     """Parameters for batch classification."""
 
-    descriptions: List[str] = Field(description="List of business descriptions to classify")
+    descriptions: list[str] = Field(description="List of business descriptions to classify")
     include_confidence: bool = Field(default=True, description="Include confidence scores")
 
 
@@ -165,11 +161,13 @@ async def lifespan(server: FastMCP):
     server_config = ServerConfig.from_env()
 
     # Log startup with config
-    log_server_start({
-        "database_path": str(search_config.database_path),
-        "embedding_model": search_config.embedding_model,
-        "debug": server_config.debug
-    })
+    log_server_start(
+        {
+            "database_path": str(search_config.database_path),
+            "embedding_model": search_config.embedding_model,
+            "debug": server_config.debug,
+        }
+    )
 
     # Initialize database
     database = NAICSDatabase(search_config.database_path)
@@ -180,10 +178,7 @@ async def lifespan(server: FastMCP):
     cache_dir = Path.home() / ".cache" / "naics-mcp-server" / "models"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    embedder = TextEmbedder(
-        model_name=search_config.embedding_model,
-        cache_dir=cache_dir
-    )
+    embedder = TextEmbedder(model_name=search_config.embedding_model, cache_dir=cache_dir)
     embedder.load_model()
     logger.info("Embedding model loaded", data={"model": search_config.embedding_model})
 
@@ -192,11 +187,14 @@ async def lifespan(server: FastMCP):
 
     # Initialize embeddings if needed
     init_result = await search_engine.initialize_embeddings()
-    logger.info("Embeddings initialized", data={
-        "action": init_result.get("action"),
-        "count": init_result.get("embeddings_count") or init_result.get("embeddings_generated"),
-        "time_seconds": init_result.get("time_seconds")
-    })
+    logger.info(
+        "Embeddings initialized",
+        data={
+            "action": init_result.get("action"),
+            "count": init_result.get("embeddings_count") or init_result.get("embeddings_generated"),
+            "time_seconds": init_result.get("time_seconds"),
+        },
+    )
 
     # Initialize cross-reference service
     cross_ref_service = CrossReferenceService(database)
@@ -212,7 +210,7 @@ async def lifespan(server: FastMCP):
     audit_log = SearchAuditLog(
         log_dir=log_dir,
         retention_days=search_config.audit_retention_days,
-        enable_file_logging=search_config.enable_audit_log
+        enable_file_logging=search_config.enable_audit_log,
     )
 
     # Create health checker
@@ -220,18 +218,25 @@ async def lifespan(server: FastMCP):
         database=database,
         embedder=embedder,
         search_engine=search_engine,
-        version=server_config.version
+        version=server_config.version,
     )
 
     # Create application context
     app_context = AppContext(
-        database, embedder, search_engine, audit_log,
-        cross_ref_service, classification_workbook, health_checker
+        database,
+        embedder,
+        search_engine,
+        audit_log,
+        cross_ref_service,
+        classification_workbook,
+        health_checker,
     )
 
     # Log server ready with stats
     stats = await database.get_statistics()
-    stats["embeddings_count"] = init_result.get("embeddings_count") or init_result.get("embeddings_generated", 0)
+    stats["embeddings_count"] = init_result.get("embeddings_count") or init_result.get(
+        "embeddings_generated", 0
+    )
     log_server_ready(stats)
 
     try:
@@ -293,9 +298,7 @@ For processing many businesses:
 
 # Create the MCP server
 mcp = FastMCP(
-    name="NAICS Classification Assistant",
-    instructions=SERVER_INSTRUCTIONS,
-    lifespan=lifespan
+    name="NAICS Classification Assistant", instructions=SERVER_INSTRUCTIONS, lifespan=lifespan
 )
 
 mcp.description = (
@@ -307,11 +310,9 @@ mcp.description = (
 
 # === Search Tools (4) ===
 
+
 @mcp.tool()
-async def search_naics_codes(
-    request: SearchRequest,
-    ctx: Context
-) -> SearchResponse:
+async def search_naics_codes(request: SearchRequest, ctx: Context) -> SearchResponse:
     """
     Search for NAICS codes using natural language.
 
@@ -352,10 +353,9 @@ async def search_naics_codes(
         confidence_result = validate_confidence(request.min_confidence)
         validated_confidence = confidence_result.value
     except ValidationError as e:
-        logger.warning("Search validation failed", data={
-            "error": e.message,
-            "field": e.details.get("field")
-        })
+        logger.warning(
+            "Search validation failed", data={"error": e.message, "field": e.details.get("field")}
+        )
         return SearchResponse(
             query=request.query,
             results=[],
@@ -363,7 +363,7 @@ async def search_naics_codes(
             strategy_used=request.strategy,
             total_found=0,
             search_time_ms=0,
-            guidance=[f"Validation error: {e.message}"]
+            guidance=[f"Validation error: {e.message}"],
         )
 
     # Start audit event
@@ -377,7 +377,7 @@ async def search_naics_codes(
             "semantic": SearchStrategy.SEMANTIC,
             "meaning": SearchStrategy.SEMANTIC,
             "lexical": SearchStrategy.LEXICAL,
-            "exact": SearchStrategy.LEXICAL
+            "exact": SearchStrategy.LEXICAL,
         }
         strategy = strategy_map.get(validated_strategy, SearchStrategy.HYBRID)
 
@@ -387,7 +387,7 @@ async def search_naics_codes(
             strategy=strategy,
             limit=validated_limit,
             min_confidence=validated_confidence,
-            include_cross_refs=request.include_cross_refs
+            include_cross_refs=request.include_cross_refs,
         )
 
         # Log search completion
@@ -410,7 +410,7 @@ async def search_naics_codes(
                     explanation=match.confidence.to_explanation(),
                     hierarchy=match.hierarchy_path,
                     matched_index_terms=match.matched_index_terms,
-                    exclusion_warnings=match.exclusion_warnings
+                    exclusion_warnings=match.exclusion_warnings,
                 )
                 for match in results.matches
             ],
@@ -418,34 +418,35 @@ async def search_naics_codes(
             strategy_used=strategy.value,
             total_found=len(results.matches),
             search_time_ms=results.query_metadata.processing_time_ms,
-            guidance=guidance
+            guidance=guidance,
         )
 
     except Exception as e:
         search_event.fail(str(e))
         await app_ctx.audit_log.log_search(search_event)
 
-        logger.error("Search failed", data={
-            "error_type": type(e).__name__,
-            "error_message": str(e)[:200],
-            "query_preview": sanitize_text(request.query, 50)
-        })
+        logger.error(
+            "Search failed",
+            data={
+                "error_type": type(e).__name__,
+                "error_message": str(e)[:200],
+                "query_preview": sanitize_text(request.query, 50),
+            },
+        )
         return SearchResponse(
             query=request.query,
             results=[],
             expanded=False,
             strategy_used=request.strategy,
             total_found=0,
-            search_time_ms=search_event.duration_ms
+            search_time_ms=search_event.duration_ms,
         )
 
 
 @mcp.tool()
 async def search_index_terms(
-    search_text: str,
-    limit: int = 20,
-    ctx: Context = None
-) -> Dict[str, Any]:
+    search_text: str, limit: int = 20, ctx: Context = None
+) -> dict[str, Any]:
     """
     Search the official NAICS index terms.
 
@@ -465,14 +466,8 @@ async def search_index_terms(
 
         return {
             "search_text": search_text,
-            "matches": [
-                {
-                    "index_term": t.index_term,
-                    "naics_code": t.naics_code
-                }
-                for t in terms
-            ],
-            "total_found": len(terms)
+            "matches": [{"index_term": t.index_term, "naics_code": t.naics_code} for t in terms],
+            "total_found": len(terms),
         }
 
     except NAICSException as e:
@@ -488,10 +483,7 @@ async def search_index_terms(
 
 
 @mcp.tool()
-async def find_similar_industries(
-    request: SimilarityRequest,
-    ctx: Context
-) -> Dict[str, Any]:
+async def find_similar_industries(request: SimilarityRequest, ctx: Context) -> dict[str, Any]:
     """
     Find NAICS codes similar to a given code.
 
@@ -504,10 +496,7 @@ async def find_similar_industries(
         code = await app_ctx.database.get_by_code(request.naics_code)
 
         if not code:
-            return {
-                "error": f"NAICS code {request.naics_code} not found",
-                "similar_codes": []
-            }
+            return {"error": f"NAICS code {request.naics_code} not found", "similar_codes": []}
 
         # Use the code's description for similarity search
         search_text = code.raw_embedding_text or f"{code.title} {code.description or ''}"
@@ -516,7 +505,7 @@ async def find_similar_industries(
             query=search_text,
             strategy=SearchStrategy.SEMANTIC,
             limit=request.limit + 1,
-            min_confidence=request.min_similarity
+            min_confidence=request.min_similarity,
         )
 
         # Filter out the original code
@@ -525,16 +514,16 @@ async def find_similar_industries(
                 "code": match.code.node_code,
                 "title": match.code.title,
                 "similarity": match.confidence.semantic,
-                "level": match.code.level.value
+                "level": match.code.level.value,
             }
             for match in results.matches
             if match.code.node_code != request.naics_code
-        ][:request.limit]
+        ][: request.limit]
 
         return {
             "original_code": request.naics_code,
             "original_title": code.title,
-            "similar_codes": similar
+            "similar_codes": similar,
         }
 
     except NAICSException as e:
@@ -550,10 +539,7 @@ async def find_similar_industries(
 
 
 @mcp.tool()
-async def classify_batch(
-    request: BatchClassifyRequest,
-    ctx: Context
-) -> Dict[str, Any]:
+async def classify_batch(request: BatchClassifyRequest, ctx: Context) -> dict[str, Any]:
     """
     Classify multiple business descriptions in batch.
 
@@ -571,16 +557,15 @@ async def classify_batch(
         batch_result = validate_batch_descriptions(request.descriptions)
         validated_descriptions = batch_result.value
     except ValidationError as e:
-        logger.warning("Batch validation failed", data={
-            "error": e.message,
-            "field": e.details.get("field")
-        })
+        logger.warning(
+            "Batch validation failed", data={"error": e.message, "field": e.details.get("field")}
+        )
         return {
             "error": e.message,
             "error_category": "validation",
             "classifications": [],
             "total_processed": 0,
-            "successfully_classified": 0
+            "successfully_classified": 0,
         }
 
     classifications = []
@@ -588,10 +573,7 @@ async def classify_batch(
     for description in validated_descriptions:
         try:
             results = await app_ctx.search_engine.search(
-                query=description,
-                strategy=SearchStrategy.HYBRID,
-                limit=1,
-                min_confidence=0.3
+                query=description, strategy=SearchStrategy.HYBRID, limit=1, min_confidence=0.3
             )
 
             if results.matches:
@@ -600,7 +582,7 @@ async def classify_batch(
                     "description": description,
                     "naics_code": best_match.code.node_code,
                     "naics_title": best_match.code.title,
-                    "level": best_match.code.level.value
+                    "level": best_match.code.level.value,
                 }
 
                 if request.include_confidence:
@@ -609,37 +591,33 @@ async def classify_batch(
 
                 classifications.append(classification)
             else:
-                classifications.append({
-                    "description": description,
-                    "naics_code": None,
-                    "naics_title": "No suitable classification found",
-                    "confidence": 0.0 if request.include_confidence else None
-                })
+                classifications.append(
+                    {
+                        "description": description,
+                        "naics_code": None,
+                        "naics_title": "No suitable classification found",
+                        "confidence": 0.0 if request.include_confidence else None,
+                    }
+                )
 
         except Exception as e:
             logger.error(f"Failed to classify '{description}': {e}")
-            classifications.append({
-                "description": description,
-                "error": str(e)
-            })
+            classifications.append({"description": description, "error": str(e)})
 
     return {
         "classifications": classifications,
         "total_processed": len(request.descriptions),
         "successfully_classified": sum(
-            1 for c in classifications
-            if c.get("naics_code") and "error" not in c
-        )
+            1 for c in classifications if c.get("naics_code") and "error" not in c
+        ),
     }
 
 
 # === Hierarchy Tools (3) ===
 
+
 @mcp.tool()
-async def get_code_hierarchy(
-    naics_code: str,
-    ctx: Context
-) -> Dict[str, Any]:
+async def get_code_hierarchy(naics_code: str, ctx: Context) -> dict[str, Any]:
     """
     Get the complete hierarchical path for a NAICS code.
 
@@ -652,25 +630,21 @@ async def get_code_hierarchy(
         hierarchy = await app_ctx.database.get_hierarchy(naics_code)
 
         if not hierarchy:
-            return {
-                "error": f"NAICS code {naics_code} not found",
-                "hierarchy": []
-            }
+            return {"error": f"NAICS code {naics_code} not found", "hierarchy": []}
 
         hierarchy_list = [
             {
                 "level": code.level.value,
                 "code": code.node_code,
                 "title": code.title,
-                "description": code.description[:200] + "..." if code.description and len(code.description) > 200 else code.description
+                "description": code.description[:200] + "..."
+                if code.description and len(code.description) > 200
+                else code.description,
             }
             for code in hierarchy
         ]
 
-        return {
-            "naics_code": naics_code,
-            "hierarchy": hierarchy_list
-        }
+        return {"naics_code": naics_code, "hierarchy": hierarchy_list}
 
     except NAICSException as e:
         logger.error(f"Failed to get hierarchy: {e}")
@@ -685,10 +659,7 @@ async def get_code_hierarchy(
 
 
 @mcp.tool()
-async def get_children(
-    naics_code: str,
-    ctx: Context
-) -> Dict[str, Any]:
+async def get_children(naics_code: str, ctx: Context) -> dict[str, Any]:
     """
     Get immediate children of a NAICS code.
 
@@ -703,14 +674,10 @@ async def get_children(
         return {
             "parent_code": naics_code,
             "children": [
-                {
-                    "code": child.node_code,
-                    "title": child.title,
-                    "level": child.level.value
-                }
+                {"code": child.node_code, "title": child.title, "level": child.level.value}
                 for child in children
             ],
-            "count": len(children)
+            "count": len(children),
         }
 
     except NAICSException as e:
@@ -726,11 +693,7 @@ async def get_children(
 
 
 @mcp.tool()
-async def get_siblings(
-    naics_code: str,
-    limit: int = 10,
-    ctx: Context = None
-) -> Dict[str, Any]:
+async def get_siblings(naics_code: str, limit: int = 10, ctx: Context = None) -> dict[str, Any]:
     """
     Get sibling codes at the same hierarchical level.
 
@@ -742,10 +705,7 @@ async def get_siblings(
     try:
         code = await app_ctx.database.get_by_code(naics_code)
         if not code:
-            return {
-                "error": f"NAICS code {naics_code} not found",
-                "siblings": []
-            }
+            return {"error": f"NAICS code {naics_code} not found", "siblings": []}
 
         siblings = await app_ctx.database.get_siblings(naics_code, limit=limit)
 
@@ -753,13 +713,7 @@ async def get_siblings(
             "code": naics_code,
             "title": code.title,
             "level": code.level.value,
-            "siblings": [
-                {
-                    "code": sib.node_code,
-                    "title": sib.title
-                }
-                for sib in siblings
-            ]
+            "siblings": [{"code": sib.node_code, "title": sib.title} for sib in siblings],
         }
 
     except NAICSException as e:
@@ -776,11 +730,9 @@ async def get_siblings(
 
 # === Classification Tools (3) ===
 
+
 @mcp.tool()
-async def classify_business(
-    request: ClassifyRequest,
-    ctx: Context
-) -> Dict[str, Any]:
+async def classify_business(request: ClassifyRequest, ctx: Context) -> dict[str, Any]:
     """
     Classify a business description to NAICS with detailed reasoning.
 
@@ -803,21 +755,24 @@ async def classify_business(
         desc_result = validate_description(request.description)
         validated_description = desc_result.value
     except ValidationError as e:
-        logger.warning("Classification validation failed", data={
-            "error": e.message,
-            "field": e.details.get("field")
-        })
+        logger.warning(
+            "Classification validation failed",
+            data={"error": e.message, "field": e.details.get("field")},
+        )
         return {
             "input": request.description[:100] if request.description else None,
             "error": e.message,
-            "error_category": "validation"
+            "error_category": "validation",
         }
 
-    logger.info("Classification requested", data={
-        "description_length": len(validated_description),
-        "description_preview": sanitize_text(validated_description, 50),
-        "check_cross_refs": request.check_cross_refs
-    })
+    logger.info(
+        "Classification requested",
+        data={
+            "description_length": len(validated_description),
+            "description_preview": sanitize_text(validated_description, 50),
+            "check_cross_refs": request.check_cross_refs,
+        },
+    )
 
     try:
         # Perform comprehensive search
@@ -826,7 +781,7 @@ async def classify_business(
             strategy=SearchStrategy.HYBRID,
             limit=5,
             min_confidence=0.2,
-            include_cross_refs=request.check_cross_refs
+            include_cross_refs=request.check_cross_refs,
         )
 
         if not results.matches:
@@ -834,7 +789,7 @@ async def classify_business(
                 "input": request.description,
                 "classification": None,
                 "reasoning": "No suitable NAICS codes found for this description. Consider providing more specific details about the business activity.",
-                "alternatives": []
+                "alternatives": [],
             }
 
         primary = results.matches[0]
@@ -852,27 +807,29 @@ async def classify_business(
                     "lexical": primary.confidence.lexical,
                     "index_term": primary.confidence.index_term,
                     "specificity": primary.confidence.specificity,
-                    "cross_ref": primary.confidence.cross_ref
+                    "cross_ref": primary.confidence.cross_ref,
                 },
                 "hierarchy": primary.hierarchy_path,
-                "matched_index_terms": primary.matched_index_terms
+                "matched_index_terms": primary.matched_index_terms,
             },
             "alternatives": [
                 {
                     "code": alt.code.node_code,
                     "title": alt.code.title,
                     "confidence": alt.confidence.overall,
-                    "matched_index_terms": alt.matched_index_terms
+                    "matched_index_terms": alt.matched_index_terms,
                 }
                 for alt in alternatives
-            ]
+            ],
         }
 
         if request.include_reasoning:
             reasoning_parts = []
 
             # 1. Primary classification summary
-            reasoning_parts.append(f"**Primary Classification:** {primary.code.node_code} - {primary.code.title}")
+            reasoning_parts.append(
+                f"**Primary Classification:** {primary.code.node_code} - {primary.code.title}"
+            )
             reasoning_parts.append(f"**Overall Confidence:** {primary.confidence.overall:.1%}")
             reasoning_parts.append("")
 
@@ -896,9 +853,13 @@ async def classify_business(
 
             # 3. Index term matches
             if primary.matched_index_terms:
-                reasoning_parts.append(f"**Official Index Terms Matched:** {', '.join(primary.matched_index_terms[:5])}")
+                reasoning_parts.append(
+                    f"**Official Index Terms Matched:** {', '.join(primary.matched_index_terms[:5])}"
+                )
             else:
-                reasoning_parts.append("**Official Index Terms Matched:** None (matched via description)")
+                reasoning_parts.append(
+                    "**Official Index Terms Matched:** None (matched via description)"
+                )
             reasoning_parts.append("")
 
             # 4. Why chosen over alternatives
@@ -926,11 +887,17 @@ async def classify_business(
                 if primary.exclusion_warnings:
                     reasoning_parts.append("**Cross-References Checked:** Yes - WARNINGS FOUND")
                 elif primary.relevant_cross_refs:
-                    reasoning_parts.append(f"**Cross-References Checked:** Yes - {len(primary.relevant_cross_refs)} references reviewed, no conflicts")
+                    reasoning_parts.append(
+                        f"**Cross-References Checked:** Yes - {len(primary.relevant_cross_refs)} references reviewed, no conflicts"
+                    )
                 else:
-                    reasoning_parts.append("**Cross-References Checked:** Yes - no applicable exclusions")
+                    reasoning_parts.append(
+                        "**Cross-References Checked:** Yes - no applicable exclusions"
+                    )
             else:
-                reasoning_parts.append("**Cross-References Checked:** No (use check_cross_refs=true for full validation)")
+                reasoning_parts.append(
+                    "**Cross-References Checked:** No (use check_cross_refs=true for full validation)"
+                )
             reasoning_parts.append("")
 
             # 6. Exclusion warnings (if any)
@@ -945,31 +912,30 @@ async def classify_business(
             response["exclusion_warnings"] = primary.exclusion_warnings
 
         # Log successful classification
-        logger.info("Classification completed", data={
-            "primary_code": primary.code.node_code,
-            "confidence": primary.confidence.overall,
-            "alternatives_count": len(alternatives),
-            "exclusion_warnings": len(primary.exclusion_warnings) if primary.exclusion_warnings else 0
-        })
+        logger.info(
+            "Classification completed",
+            data={
+                "primary_code": primary.code.node_code,
+                "confidence": primary.confidence.overall,
+                "alternatives_count": len(alternatives),
+                "exclusion_warnings": len(primary.exclusion_warnings)
+                if primary.exclusion_warnings
+                else 0,
+            },
+        )
 
         return response
 
     except Exception as e:
-        logger.error("Classification failed", data={
-            "error_type": type(e).__name__,
-            "error_message": str(e)[:200]
-        })
-        return {
-            "input": request.description,
-            "error": str(e)
-        }
+        logger.error(
+            "Classification failed",
+            data={"error_type": type(e).__name__, "error_message": str(e)[:200]},
+        )
+        return {"input": request.description, "error": str(e)}
 
 
 @mcp.tool()
-async def get_cross_references(
-    naics_code: str,
-    ctx: Context
-) -> Dict[str, Any]:
+async def get_cross_references(naics_code: str, ctx: Context) -> dict[str, Any]:
     """
     Get cross-references (exclusions/inclusions) for a NAICS code.
 
@@ -985,10 +951,7 @@ async def get_cross_references(
     try:
         code = await app_ctx.database.get_by_code(naics_code)
         if not code:
-            return {
-                "error": f"NAICS code {naics_code} not found",
-                "cross_references": []
-            }
+            return {"error": f"NAICS code {naics_code} not found", "cross_references": []}
 
         cross_refs = await app_ctx.database.get_cross_references(naics_code)
 
@@ -1000,31 +963,29 @@ async def get_cross_references(
                     "type": cr.reference_type,
                     "excluded_activity": cr.excluded_activity,
                     "target_code": cr.target_code,
-                    "reference_text": cr.reference_text
+                    "reference_text": cr.reference_text,
                 }
                 for cr in cross_refs
             ],
-            "total": len(cross_refs)
+            "total": len(cross_refs),
         }
 
     except Exception as e:
-        logger.error("Failed to get cross-references", data={
-            "naics_code": naics_code,
-            "error_type": type(e).__name__,
-            "error_message": str(e)[:200]
-        })
-        return {
-            "error": str(e),
-            "cross_references": []
-        }
+        logger.error(
+            "Failed to get cross-references",
+            data={
+                "naics_code": naics_code,
+                "error_type": type(e).__name__,
+                "error_message": str(e)[:200],
+            },
+        )
+        return {"error": str(e), "cross_references": []}
 
 
 @mcp.tool()
 async def validate_classification(
-    naics_code: str,
-    business_description: str,
-    ctx: Context
-) -> Dict[str, Any]:
+    naics_code: str, business_description: str, ctx: Context
+) -> dict[str, Any]:
     """
     Validate if a NAICS code is correct for a business description.
 
@@ -1050,7 +1011,7 @@ async def validate_classification(
                 "naics_code": naics_code,
                 "status": "invalid",
                 "reason": f"NAICS code {naics_code} does not exist",
-                "valid": False
+                "valid": False,
             }
 
         # 2. Search for best matches for this description
@@ -1059,7 +1020,7 @@ async def validate_classification(
             strategy=SearchStrategy.HYBRID,
             limit=5,
             min_confidence=0.2,
-            include_cross_refs=True
+            include_cross_refs=True,
         )
 
         # 3. Check if the provided code is in the top results
@@ -1084,12 +1045,16 @@ async def validate_classification(
                 activity_words = set(activity_lower.split())
                 desc_words = set(desc_lower.split())
                 overlap = activity_words & desc_words
-                if len(overlap) >= 2 or any(word in desc_lower for word in activity_words if len(word) > 5):
-                    exclusion_warnings.append({
-                        "excluded_activity": cr.excluded_activity,
-                        "should_be": cr.target_code,
-                        "reference": cr.reference_text[:200]
-                    })
+                if len(overlap) >= 2 or any(
+                    word in desc_lower for word in activity_words if len(word) > 5
+                ):
+                    exclusion_warnings.append(
+                        {
+                            "excluded_activity": cr.excluded_activity,
+                            "should_be": cr.target_code,
+                            "reference": cr.reference_text[:200],
+                        }
+                    )
 
         # 5. Determine validation status
         top_match = results.matches[0] if results.matches else None
@@ -1107,7 +1072,9 @@ async def validate_classification(
                     reason = f"Strong match - rank #1 with {confidence:.0%} confidence"
                 else:
                     status = "valid"
-                    reason = f"Best available match (rank #1) but moderate confidence ({confidence:.0%})"
+                    reason = (
+                        f"Best available match (rank #1) but moderate confidence ({confidence:.0%})"
+                    )
             elif provided_rank <= 3:
                 status = "questionable"
                 reason = f"Acceptable match (rank #{provided_rank}, {confidence:.0%} confidence) but better alternatives exist"
@@ -1116,7 +1083,7 @@ async def validate_classification(
                         "code": m.code.node_code,
                         "title": m.code.title,
                         "confidence": m.confidence.overall,
-                        "rank": i + 1
+                        "rank": i + 1,
                     }
                     for i, m in enumerate(results.matches[:3])
                     if m.code.node_code != naics_code
@@ -1129,7 +1096,7 @@ async def validate_classification(
                         "code": m.code.node_code,
                         "title": m.code.title,
                         "confidence": m.confidence.overall,
-                        "rank": i + 1
+                        "rank": i + 1,
                     }
                     for i, m in enumerate(results.matches[:3])
                 ]
@@ -1142,7 +1109,7 @@ async def validate_classification(
                     "code": m.code.node_code,
                     "title": m.code.title,
                     "confidence": m.confidence.overall,
-                    "rank": i + 1
+                    "rank": i + 1,
                 }
                 for i, m in enumerate(results.matches[:3])
             ]
@@ -1154,7 +1121,7 @@ async def validate_classification(
             "description_checked": business_description,
             "status": status,
             "valid": status == "valid",
-            "reason": reason
+            "reason": reason,
         }
 
         if provided_match:
@@ -1164,12 +1131,14 @@ async def validate_classification(
                 "semantic": provided_match.confidence.semantic,
                 "lexical": provided_match.confidence.lexical,
                 "index_term": provided_match.confidence.index_term,
-                "specificity": provided_match.confidence.specificity
+                "specificity": provided_match.confidence.specificity,
             }
 
         if exclusion_warnings:
             response["exclusion_warnings"] = exclusion_warnings
-            response["warning"] = f"Description may match {len(exclusion_warnings)} exclusion(s) for this code"
+            response["warning"] = (
+                f"Description may match {len(exclusion_warnings)} exclusion(s) for this code"
+            )
 
         if alternatives:
             response["suggested_alternatives"] = alternatives
@@ -1178,39 +1147,41 @@ async def validate_classification(
             response["best_match"] = {
                 "code": top_match.code.node_code,
                 "title": top_match.code.title,
-                "confidence": top_match.confidence.overall
+                "confidence": top_match.confidence.overall,
             }
 
         # Log validation result
-        logger.info("Validation completed", data={
-            "naics_code": naics_code,
-            "status": status,
-            "rank": provided_rank,
-            "exclusion_warnings": len(exclusion_warnings) if exclusion_warnings else 0
-        })
+        logger.info(
+            "Validation completed",
+            data={
+                "naics_code": naics_code,
+                "status": status,
+                "rank": provided_rank,
+                "exclusion_warnings": len(exclusion_warnings) if exclusion_warnings else 0,
+            },
+        )
 
         return response
 
     except Exception as e:
-        logger.error("Validation failed", data={
-            "naics_code": naics_code,
-            "error_type": type(e).__name__,
-            "error_message": str(e)[:200]
-        })
-        return {
-            "naics_code": naics_code,
-            "status": "error",
-            "error": str(e)
-        }
+        logger.error(
+            "Validation failed",
+            data={
+                "naics_code": naics_code,
+                "error_type": type(e).__name__,
+                "error_message": str(e)[:200],
+            },
+        )
+        return {"naics_code": naics_code, "status": "error", "error": str(e)}
 
 
 # === Analytics Tools (2) ===
 
+
 @mcp.tool()
 async def get_sector_overview(
-    sector_code: Optional[str] = None,
-    ctx: Context = None
-) -> Dict[str, Any]:
+    sector_code: str | None = None, ctx: Context = None
+) -> dict[str, Any]:
     """
     Get an overview of NAICS sectors or a specific sector.
 
@@ -1232,15 +1203,11 @@ async def get_sector_overview(
                 "sector": {
                     "code": sector.node_code,
                     "title": sector.title,
-                    "description": sector.description
+                    "description": sector.description,
                 },
                 "subsectors": [
-                    {
-                        "code": child.node_code,
-                        "title": child.title
-                    }
-                    for child in children
-                ]
+                    {"code": child.node_code, "title": child.title} for child in children
+                ],
             }
         else:
             # Get all sectors
@@ -1256,11 +1223,13 @@ async def get_sector_overview(
                     {
                         "code": row[0],
                         "title": row[1],
-                        "description": row[2][:150] + "..." if row[2] and len(row[2]) > 150 else row[2]
+                        "description": row[2][:150] + "..."
+                        if row[2] and len(row[2]) > 150
+                        else row[2],
                     }
                     for row in results
                 ],
-                "total": len(results)
+                "total": len(results),
             }
 
     except Exception as e:
@@ -1269,10 +1238,7 @@ async def get_sector_overview(
 
 
 @mcp.tool()
-async def compare_codes(
-    codes: List[str],
-    ctx: Context
-) -> Dict[str, Any]:
+async def compare_codes(codes: list[str], ctx: Context) -> dict[str, Any]:
     """
     Compare multiple NAICS codes side-by-side.
 
@@ -1290,15 +1256,15 @@ async def compare_codes(
         codes_result = validate_batch_codes(codes)
         validated_codes = codes_result.value
     except ValidationError as e:
-        logger.warning("Code comparison validation failed", data={
-            "error": e.message,
-            "field": e.details.get("field")
-        })
+        logger.warning(
+            "Code comparison validation failed",
+            data={"error": e.message, "field": e.details.get("field")},
+        )
         return {
             "error": e.message,
             "error_category": "validation",
             "codes_compared": [],
-            "comparisons": []
+            "comparisons": [],
         }
 
     try:
@@ -1310,31 +1276,25 @@ async def compare_codes(
                 cross_refs = await app_ctx.database.get_cross_references(code_str)
                 index_terms = await app_ctx.database.get_index_terms_for_code(code_str)
 
-                comparisons.append({
-                    "code": code.node_code,
-                    "title": code.title,
-                    "level": code.level.value,
-                    "description": code.description,
-                    "hierarchy": code.get_hierarchy_path(),
-                    "index_terms": [t.index_term for t in index_terms[:5]],
-                    "exclusions": [
-                        {
-                            "activity": cr.excluded_activity,
-                            "classified_under": cr.target_code
-                        }
-                        for cr in cross_refs if cr.reference_type == "excludes"
-                    ][:3]
-                })
+                comparisons.append(
+                    {
+                        "code": code.node_code,
+                        "title": code.title,
+                        "level": code.level.value,
+                        "description": code.description,
+                        "hierarchy": code.get_hierarchy_path(),
+                        "index_terms": [t.index_term for t in index_terms[:5]],
+                        "exclusions": [
+                            {"activity": cr.excluded_activity, "classified_under": cr.target_code}
+                            for cr in cross_refs
+                            if cr.reference_type == "excludes"
+                        ][:3],
+                    }
+                )
             else:
-                comparisons.append({
-                    "code": code_str,
-                    "error": "Code not found"
-                })
+                comparisons.append({"code": code_str, "error": "Code not found"})
 
-        return {
-            "codes_compared": codes,
-            "comparisons": comparisons
-        }
+        return {"codes_compared": codes, "comparisons": comparisons}
 
     except Exception as e:
         logger.error(f"Failed to compare codes: {e}")
@@ -1343,11 +1303,9 @@ async def compare_codes(
 
 # === Workbook Tools (4) ===
 
+
 @mcp.tool()
-async def write_to_workbook(
-    request: WorkbookWriteRequest,
-    ctx: Context
-) -> Dict[str, Any]:
+async def write_to_workbook(request: WorkbookWriteRequest, ctx: Context) -> dict[str, Any]:
     """
     Write structured classification decisions to the workbook.
 
@@ -1414,7 +1372,7 @@ async def write_to_workbook(
         except ValueError:
             return {
                 "error": f"Invalid form type: {request.form_type}",
-                "valid_types": [ft.value for ft in FormType]
+                "valid_types": [ft.value for ft in FormType],
             }
 
         entry = await app_ctx.classification_workbook.create_entry(
@@ -1424,7 +1382,7 @@ async def write_to_workbook(
             metadata=request.metadata,
             tags=request.tags,
             parent_entry_id=request.parent_entry_id,
-            confidence_score=request.confidence_score
+            confidence_score=request.confidence_score,
         )
 
         return {
@@ -1434,22 +1392,16 @@ async def write_to_workbook(
             "form_type": entry.form_type.value,
             "created_at": entry.created_at.isoformat(),
             "session_id": entry.session_id,
-            "message": f"Successfully filed '{entry.label}' in workbook"
+            "message": f"Successfully filed '{entry.label}' in workbook",
         }
 
     except Exception as e:
         logger.error(f"Failed to write to workbook: {e}")
-        return {
-            "error": f"Failed to write to workbook: {str(e)}",
-            "success": False
-        }
+        return {"error": f"Failed to write to workbook: {str(e)}", "success": False}
 
 
 @mcp.tool()
-async def search_workbook(
-    request: WorkbookSearchRequest,
-    ctx: Context
-) -> Dict[str, Any]:
+async def search_workbook(request: WorkbookSearchRequest, ctx: Context) -> dict[str, Any]:
     """
     Search the classification workbook for past entries.
 
@@ -1464,10 +1416,7 @@ async def search_workbook(
             try:
                 form_type = FormType(request.form_type.lower())
             except ValueError:
-                return {
-                    "error": f"Invalid form type: {request.form_type}",
-                    "results": []
-                }
+                return {"error": f"Invalid form type: {request.form_type}", "results": []}
 
         entries = await app_ctx.classification_workbook.search_entries(
             form_type=form_type,
@@ -1475,7 +1424,7 @@ async def search_workbook(
             tags=request.tags,
             search_text=request.search_text,
             parent_entry_id=request.parent_entry_id,
-            limit=request.limit
+            limit=request.limit,
         )
 
         results = [
@@ -1486,30 +1435,22 @@ async def search_workbook(
                 "created_at": entry.created_at.isoformat(),
                 "tags": entry.tags,
                 "confidence_score": entry.confidence_score,
-                "preview": str(entry.content)[:200] + "..." if len(str(entry.content)) > 200 else str(entry.content)
+                "preview": str(entry.content)[:200] + "..."
+                if len(str(entry.content)) > 200
+                else str(entry.content),
             }
             for entry in entries
         ]
 
-        return {
-            "success": True,
-            "count": len(results),
-            "results": results
-        }
+        return {"success": True, "count": len(results), "results": results}
 
     except Exception as e:
         logger.error(f"Failed to search workbook: {e}")
-        return {
-            "error": f"Failed to search workbook: {str(e)}",
-            "results": []
-        }
+        return {"error": f"Failed to search workbook: {str(e)}", "results": []}
 
 
 @mcp.tool()
-async def get_workbook_entry(
-    entry_id: str,
-    ctx: Context
-) -> Dict[str, Any]:
+async def get_workbook_entry(entry_id: str, ctx: Context) -> dict[str, Any]:
     """
     Retrieve a specific workbook entry by ID.
     """
@@ -1519,10 +1460,7 @@ async def get_workbook_entry(
         entry = await app_ctx.classification_workbook.get_entry(entry_id)
 
         if not entry:
-            return {
-                "error": f"Entry {entry_id} not found",
-                "success": False
-            }
+            return {"error": f"Entry {entry_id} not found", "success": False}
 
         return {
             "success": True,
@@ -1536,23 +1474,17 @@ async def get_workbook_entry(
                 "session_id": entry.session_id,
                 "parent_entry_id": entry.parent_entry_id,
                 "tags": entry.tags,
-                "confidence_score": entry.confidence_score
-            }
+                "confidence_score": entry.confidence_score,
+            },
         }
 
     except Exception as e:
         logger.error(f"Failed to retrieve entry: {e}")
-        return {
-            "error": f"Failed to retrieve entry: {str(e)}",
-            "success": False
-        }
+        return {"error": f"Failed to retrieve entry: {str(e)}", "success": False}
 
 
 @mcp.tool()
-async def get_workbook_template(
-    request: WorkbookTemplateRequest,
-    ctx: Context
-) -> Dict[str, Any]:
+async def get_workbook_template(request: WorkbookTemplateRequest, ctx: Context) -> dict[str, Any]:
     """
     Get a template for a specific workbook form type.
 
@@ -1567,7 +1499,7 @@ async def get_workbook_template(
         except ValueError:
             return {
                 "error": f"Invalid form type: {request.form_type}",
-                "valid_types": [ft.value for ft in FormType]
+                "valid_types": [ft.value for ft in FormType],
             }
 
         template = await app_ctx.classification_workbook.get_template(form_type)
@@ -1576,21 +1508,19 @@ async def get_workbook_template(
             "success": True,
             "form_type": form_type.value,
             "template": template,
-            "description": f"Template for {form_type.value.replace('_', ' ').title()}"
+            "description": f"Template for {form_type.value.replace('_', ' ').title()}",
         }
 
     except Exception as e:
         logger.error(f"Failed to get template: {e}")
-        return {
-            "error": f"Failed to get template: {str(e)}",
-            "success": False
-        }
+        return {"error": f"Failed to get template: {str(e)}", "success": False}
 
 
 # === Server Info & Health ===
 
+
 @mcp.tool()
-async def get_workflow_guide() -> Dict[str, Any]:
+async def get_workflow_guide() -> dict[str, Any]:
     """
     Get the recommended workflows for NAICS classification.
 
@@ -1612,8 +1542,8 @@ async def get_workflow_guide() -> Dict[str, Any]:
                 "steps": [
                     "1. classify_business with a clear description",
                     "2. If confidence > 60%, you're likely done",
-                    "3. Optionally verify with search_index_terms for exact terminology"
-                ]
+                    "3. Optionally verify with search_index_terms for exact terminology",
+                ],
             },
             "full_classification": {
                 "description": "For companies with multiple business lines or ambiguous activities",
@@ -1625,8 +1555,8 @@ async def get_workflow_guide() -> Dict[str, Any]:
                     "5. compare_codes for top candidates side-by-side",
                     "6. get_cross_references to check for exclusions (CRITICAL)",
                     "7. get_siblings or find_similar_industries for alternatives",
-                    "8. write_to_workbook with form_type='classification_analysis' to document"
-                ]
+                    "8. write_to_workbook with form_type='classification_analysis' to document",
+                ],
             },
             "boundary_cases": {
                 "description": "When a business sits between two codes",
@@ -1635,16 +1565,16 @@ async def get_workflow_guide() -> Dict[str, Any]:
                     "2. get_cross_references on both candidates - exclusions are authoritative",
                     "3. compare_codes to see descriptions and index terms side-by-side",
                     "4. get_code_hierarchy to understand where each code sits conceptually",
-                    "5. Document with write_to_workbook form_type='decision_tree'"
-                ]
+                    "5. Document with write_to_workbook form_type='decision_tree'",
+                ],
             },
             "batch_classification": {
                 "description": "For processing many businesses efficiently",
                 "steps": [
                     "1. classify_batch for efficiency",
                     "2. Triage by confidence: >50% accept, 35-50% spot-check, <35% manual review",
-                    "3. Use full_classification workflow for low-confidence items"
-                ]
+                    "3. Use full_classification workflow for low-confidence items",
+                ],
             },
             "hierarchy_exploration": {
                 "description": "For exploring the NAICS structure itself",
@@ -1652,8 +1582,8 @@ async def get_workflow_guide() -> Dict[str, Any]:
                     "1. get_sector_overview to see all 20 sectors",
                     "2. get_children to drill down into subsectors",
                     "3. get_siblings to see what else is at the same level",
-                    "4. find_similar_industries for semantically related codes"
-                ]
+                    "4. find_similar_industries for semantically related codes",
+                ],
             },
             "documented_analysis": {
                 "description": "For complex cases requiring traceable reasoning with linked entries",
@@ -1663,14 +1593,14 @@ async def get_workflow_guide() -> Dict[str, Any]:
                     "3. write_to_workbook with form_type='research_notes', parent_entry_id=step1_id",
                     "4. If comparing codes: write_to_workbook form_type='industry_comparison', parent_entry_id=step3_id",
                     "5. Final decision: write_to_workbook form_type='classification_analysis', parent_entry_id=previous_id",
-                    "6. Use search_workbook(parent_entry_id=root_id) to retrieve full analysis chain"
+                    "6. Use search_workbook(parent_entry_id=root_id) to retrieve full analysis chain",
                 ],
                 "linking_patterns": {
                     "deep_dive": "business_profile → research_notes → classification_analysis",
                     "comparison": "business_profile → industry_comparison → classification_analysis",
                     "boundary_case": "classification_analysis → cross_reference_notes → revised_classification",
-                    "sic_migration": "sic_conversion → research_notes → classification_analysis"
-                }
+                    "sic_migration": "sic_conversion → research_notes → classification_analysis",
+                },
             },
             "validation": {
                 "description": "For verifying existing or user-provided classifications",
@@ -1679,23 +1609,39 @@ async def get_workflow_guide() -> Dict[str, Any]:
                     "2. If status='valid', classification is confirmed",
                     "3. If status='questionable', review exclusion_warnings and suggested_alternatives",
                     "4. If status='invalid', use suggested_alternatives or run classify_business",
-                    "5. Document decision with write_to_workbook if needed"
-                ]
-            }
+                    "5. Document decision with write_to_workbook if needed",
+                ],
+            },
         },
         "key_principles": [
             "PRIMARY ACTIVITY determines classification (largest revenue source)",
             "6-digit codes are most specific and preferred",
             "Cross-references tell you what activities are EXCLUDED - always check",
             "Index term matches are strong evidence of correct classification",
-            "When uncertain, document reasoning with the workbook tools"
+            "When uncertain, document reasoning with the workbook tools",
         ],
         "tool_categories": {
-            "search": ["search_naics_codes", "search_index_terms", "classify_business", "classify_batch"],
-            "navigation": ["get_code_hierarchy", "get_children", "get_siblings", "get_sector_overview", "find_similar_industries"],
+            "search": [
+                "search_naics_codes",
+                "search_index_terms",
+                "classify_business",
+                "classify_batch",
+            ],
+            "navigation": [
+                "get_code_hierarchy",
+                "get_children",
+                "get_siblings",
+                "get_sector_overview",
+                "find_similar_industries",
+            ],
             "validation": ["get_cross_references", "compare_codes", "validate_classification"],
-            "documentation": ["get_workbook_template", "write_to_workbook", "search_workbook", "get_workbook_entry"],
-            "diagnostics": ["ping", "check_readiness", "get_server_health", "get_workflow_guide"]
+            "documentation": [
+                "get_workbook_template",
+                "write_to_workbook",
+                "search_workbook",
+                "get_workbook_entry",
+            ],
+            "diagnostics": ["ping", "check_readiness", "get_server_health", "get_workflow_guide"],
         },
         "workbook_linking": {
             "description": "Use parent_entry_id to create traceable analysis chains",
@@ -1704,20 +1650,20 @@ async def get_workflow_guide() -> Dict[str, Any]:
                 "2. Pass that as parent_entry_id when creating follow-up entries",
                 "3. Chain continues: each entry can be parent to the next",
                 "4. Use search_workbook(parent_entry_id='abc123') to find all children",
-                "5. Use get_workbook_entry to read any entry and see its parent_entry_id"
+                "5. Use get_workbook_entry to read any entry and see its parent_entry_id",
             ],
             "benefits": [
                 "Full audit trail of classification reasoning",
                 "Easy to review multi-step analysis",
                 "Supports complex boundary case documentation",
-                "Enables 'show your work' for compliance"
-            ]
-        }
+                "Enables 'show your work' for compliance",
+            ],
+        },
     }
 
 
 @mcp.tool()
-async def ping() -> Dict[str, Any]:
+async def ping() -> dict[str, Any]:
     """
     Simple liveness check.
 
@@ -1726,15 +1672,16 @@ async def ping() -> Dict[str, Any]:
 
     For detailed health information, use get_server_health instead.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     return {
         "status": "alive",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
 @mcp.tool()
-async def check_readiness(ctx: Context) -> Dict[str, Any]:
+async def check_readiness(ctx: Context) -> dict[str, Any]:
     """
     Check if the server is ready to handle requests.
 
@@ -1755,7 +1702,7 @@ async def check_readiness(ctx: Context) -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def get_server_health(ctx: Context) -> Dict[str, Any]:
+async def get_server_health(ctx: Context) -> dict[str, Any]:
     """
     Comprehensive health check with detailed diagnostics.
 
@@ -1787,15 +1734,9 @@ async def get_server_health(ctx: Context) -> Dict[str, Any]:
         count = app_ctx.database.connection.execute(
             "SELECT COUNT(*) FROM classification_workbook"
         ).fetchone()[0]
-        health["components"]["workbook"] = {
-            "status": "ready",
-            "entries": count
-        }
+        health["components"]["workbook"] = {"status": "ready", "entries": count}
     except Exception as e:
-        health["components"]["workbook"] = {
-            "status": "error",
-            "message": str(e)[:100]
-        }
+        health["components"]["workbook"] = {"status": "error", "message": str(e)[:100]}
         if "issues" not in health:
             health["issues"] = []
         health["issues"].append(f"Workbook not available: {e}")
@@ -1805,8 +1746,9 @@ async def get_server_health(ctx: Context) -> Dict[str, Any]:
 
 # === Resources ===
 
+
 @mcp.resource("naics://statistics")
-async def get_statistics(ctx: Context) -> Dict[str, Any]:
+async def get_statistics(ctx: Context) -> dict[str, Any]:
     """
     Get statistics about the NAICS database.
     """
@@ -1827,7 +1769,7 @@ async def get_statistics(ctx: Context) -> Dict[str, Any]:
 
 
 @mcp.resource("naics://recent_searches")
-async def get_recent_searches(ctx: Context) -> List[Dict[str, Any]]:
+async def get_recent_searches(ctx: Context) -> list[dict[str, Any]]:
     """
     Get recent search queries for monitoring.
     """
@@ -1836,6 +1778,7 @@ async def get_recent_searches(ctx: Context) -> List[Dict[str, Any]]:
 
 
 # === Prompts ===
+
 
 @mcp.prompt()
 def classification_assistant_prompt() -> str:

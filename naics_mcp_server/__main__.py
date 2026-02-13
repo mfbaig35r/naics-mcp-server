@@ -15,10 +15,12 @@ def main():
     # If no arguments or just flags, run the server
     if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1].startswith("--")):
         from .server import main as server_main
+
         server_main()
     else:
         # Run CLI for other commands
         from .cli import main as cli_main
+
         cli_main()
 
 

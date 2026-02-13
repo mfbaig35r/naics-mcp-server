@@ -11,27 +11,31 @@ NAICS-specific features:
 - NAICS-specific confidence scoring
 """
 
-import time
-from typing import List, Optional, Dict, Any
-import logging
 import hashlib
+import logging
+import time
+from typing import Any
 
 from ..config import SearchConfig
-from ..core.database import NAICSDatabase
-from ..core.embeddings import TextEmbedder, EmbeddingCache
-from ..core.query_expansion import QueryExpander, SmartQueryParser
 from ..core.cross_reference import CrossReferenceService
-from ..core.errors import SearchError, EmbeddingError, DatabaseError
-from ..models.naics_models import NAICSCode, NAICSLevel, CrossReference, IndexTerm
+from ..core.database import NAICSDatabase
+from ..core.embeddings import EmbeddingCache, TextEmbedder
+from ..core.errors import DatabaseError, EmbeddingError
+from ..core.query_expansion import QueryExpander, SmartQueryParser
+from ..models.naics_models import CrossReference, IndexTerm, NAICSCode, NAICSLevel
 from ..models.search_models import (
-    NAICSMatch, SearchResults, SearchStrategy,
-    QueryTerms, QueryMetadata, ConfidenceScore
+    ConfidenceScore,
+    NAICSMatch,
+    QueryMetadata,
+    QueryTerms,
+    SearchResults,
+    SearchStrategy,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def generate_search_guidance(results: SearchResults) -> List[str]:
+def generate_search_guidance(results: SearchResults) -> list[str]:
     """
     Generate observational guidance based on search results.
 
@@ -56,7 +60,9 @@ def generate_search_guidance(results: SearchResults) -> List[str]:
 
     # Describe relative confidence patterns
     if len(results.matches) >= 2:
-        confidence_gap = results.matches[0].confidence.overall - results.matches[1].confidence.overall
+        confidence_gap = (
+            results.matches[0].confidence.overall - results.matches[1].confidence.overall
+        )
 
         if confidence_gap > 0.3:
             observations.append("Top result significantly stronger than alternatives")
@@ -81,7 +87,9 @@ def generate_search_guidance(results: SearchResults) -> List[str]:
     # Note exclusion warnings
     exclusions = results.get_exclusion_warnings()
     if exclusions:
-        observations.append(f"WARNING: {len(exclusions)} result(s) have exclusion warnings - review carefully")
+        observations.append(
+            f"WARNING: {len(exclusions)} result(s) have exclusion warnings - review carefully"
+        )
 
     # Note if query was expanded
     if results.query_metadata.was_expanded:
@@ -92,7 +100,7 @@ def generate_search_guidance(results: SearchResults) -> List[str]:
     unique_levels = set(levels)
     if len(unique_levels) == 1:
         observations.append(f"All results at {levels[0]} level")
-    elif 'national_industry' in unique_levels and 'sector' in unique_levels:
+    elif "national_industry" in unique_levels and "sector" in unique_levels:
         observations.append("Results span from broad sectors to specific industries")
 
     return observations
@@ -118,7 +126,7 @@ class ConfidenceCalculator:
         lexical_score: float,
         index_term_score: float = 0.0,
         specificity_score: float = 0.5,
-        cross_ref_factor: float = 1.0
+        cross_ref_factor: float = 1.0,
     ) -> ConfidenceScore:
         """
         Calculate confidence score from multiple factors.
@@ -135,11 +143,11 @@ class ConfidenceCalculator:
         """
         # NAICS-specific weighted combination
         overall = (
-            0.40 * semantic_score +
-            0.20 * lexical_score +
-            0.15 * index_term_score +
-            0.15 * specificity_score +
-            0.10 * max(0, min(1, cross_ref_factor))
+            0.40 * semantic_score
+            + 0.20 * lexical_score
+            + 0.15 * index_term_score
+            + 0.15 * specificity_score
+            + 0.10 * max(0, min(1, cross_ref_factor))
         )
 
         # Apply cross-reference penalty if < 1.0
@@ -152,7 +160,7 @@ class ConfidenceCalculator:
             index_term=index_term_score,
             specificity=specificity_score,
             cross_ref=cross_ref_factor - 1.0,  # -0.3 to +0.2 range
-            overall=min(1.0, max(0.0, overall))
+            overall=min(1.0, max(0.0, overall)),
         )
 
 
@@ -180,7 +188,9 @@ class SearchCache:
         key_str = f"{query}:{strategy}:{limit}:{min_confidence}"
         return hashlib.md5(key_str.encode()).hexdigest()
 
-    def get(self, query: str, strategy: str, limit: int, min_confidence: float) -> Optional[SearchResults]:
+    def get(
+        self, query: str, strategy: str, limit: int, min_confidence: float
+    ) -> SearchResults | None:
         """Retrieve cached results if available and not expired."""
         key = self._get_cache_key(query, strategy, limit, min_confidence)
 
@@ -196,7 +206,9 @@ class SearchCache:
         self.misses += 1
         return None
 
-    def put(self, query: str, strategy: str, limit: int, min_confidence: float, results: SearchResults) -> None:
+    def put(
+        self, query: str, strategy: str, limit: int, min_confidence: float, results: SearchResults
+    ) -> None:
         """Store search results in cache."""
         if len(self.cache) >= self.maxsize:
             oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
@@ -205,7 +217,7 @@ class SearchCache:
         key = self._get_cache_key(query, strategy, limit, min_confidence)
         self.cache[key] = (results, time.time())
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         total = self.hits + self.misses
         hit_rate = self.hits / total if total > 0 else 0
@@ -214,7 +226,7 @@ class SearchCache:
             "maxsize": self.maxsize,
             "hits": self.hits,
             "misses": self.misses,
-            "hit_rate": hit_rate
+            "hit_rate": hit_rate,
         }
 
     def clear(self) -> None:
@@ -237,10 +249,7 @@ class NAICSSearchEngine:
     """
 
     def __init__(
-        self,
-        database: NAICSDatabase,
-        embedder: TextEmbedder,
-        config: SearchConfig = None
+        self, database: NAICSDatabase, embedder: TextEmbedder, config: SearchConfig = None
     ):
         """
         Initialize with explicit dependencies.
@@ -264,7 +273,7 @@ class NAICSSearchEngine:
         # Track if embeddings are initialized
         self.embeddings_ready = False
 
-    async def initialize_embeddings(self, force_rebuild: bool = False) -> Dict[str, Any]:
+    async def initialize_embeddings(self, force_rebuild: bool = False) -> dict[str, Any]:
         """
         Initialize or verify embeddings are ready.
 
@@ -292,7 +301,7 @@ class NAICSSearchEngine:
                     "status": "initialized",
                     "embeddings_generated": result["count"],
                     "time_seconds": time.time() - start_time,
-                    "action": "created" if not has_embeddings_table else "rebuilt"
+                    "action": "created" if not has_embeddings_table else "rebuilt",
                 }
             else:
                 # Verify embeddings are populated
@@ -308,7 +317,7 @@ class NAICSSearchEngine:
                         "status": "initialized",
                         "embeddings_generated": result["count"],
                         "time_seconds": time.time() - start_time,
-                        "action": "populated"
+                        "action": "populated",
                     }
                 else:
                     self.embeddings_ready = True
@@ -316,7 +325,7 @@ class NAICSSearchEngine:
                         "status": "ready",
                         "embeddings_count": count,
                         "time_seconds": time.time() - start_time,
-                        "action": "verified"
+                        "action": "verified",
                     }
 
         except EmbeddingError as e:
@@ -326,7 +335,7 @@ class NAICSSearchEngine:
                 "error": e.message,
                 "error_category": e.category.value,
                 "retryable": e.retryable,
-                "time_seconds": time.time() - start_time
+                "time_seconds": time.time() - start_time,
             }
         except DatabaseError as e:
             logger.error(f"Database error during embedding initialization: {e}")
@@ -335,7 +344,7 @@ class NAICSSearchEngine:
                 "error": e.message,
                 "error_category": e.category.value,
                 "retryable": e.retryable,
-                "time_seconds": time.time() - start_time
+                "time_seconds": time.time() - start_time,
             }
         except Exception as e:
             logger.error(f"Failed to initialize embeddings: {e}")
@@ -344,10 +353,10 @@ class NAICSSearchEngine:
                 "error": str(e),
                 "error_category": "permanent",
                 "retryable": False,
-                "time_seconds": time.time() - start_time
+                "time_seconds": time.time() - start_time,
             }
 
-    async def _generate_all_embeddings(self) -> Dict[str, Any]:
+    async def _generate_all_embeddings(self) -> dict[str, Any]:
         """
         Generate embeddings for all NAICS codes.
 
@@ -380,19 +389,14 @@ class NAICSSearchEngine:
         total_processed = 0
 
         for i in range(0, len(codes), batch_size):
-            batch = codes[i:i + batch_size]
+            batch = codes[i : i + batch_size]
 
             # Extract texts for embedding
-            texts = [
-                row[1] if row[1] else f"{row[2]} {row[3] or ''}"
-                for row in batch
-            ]
+            texts = [row[1] if row[1] else f"{row[2]} {row[3] or ''}" for row in batch]
 
             # Generate embeddings
             embeddings = self.embedder.embed_batch(
-                texts,
-                batch_size=batch_size,
-                normalize=self.config.normalize_embeddings
+                texts, batch_size=batch_size, normalize=self.config.normalize_embeddings
             )
 
             # Prepare batch data for insertion
@@ -402,17 +406,22 @@ class NAICSSearchEngine:
                 batch_data.append([node_code, embedding_list, texts[j]])
 
             # Batch insert into database
-            self.database.connection.executemany("""
+            self.database.connection.executemany(
+                """
                 INSERT OR REPLACE INTO naics_embeddings
                 (node_code, embedding, embedding_text)
                 VALUES (?, ?, ?)
-            """, batch_data)
+            """,
+                batch_data,
+            )
 
             total_processed += len(batch)
 
             if total_processed % 200 == 0:
                 progress = (total_processed / len(codes)) * 100
-                logger.info(f"Generating embeddings: {progress:.1f}% complete ({total_processed}/{len(codes)})...")
+                logger.info(
+                    f"Generating embeddings: {progress:.1f}% complete ({total_processed}/{len(codes)})..."
+                )
 
         logger.info(f"Successfully generated {total_processed} embeddings")
 
@@ -424,7 +433,7 @@ class NAICSSearchEngine:
         strategy: SearchStrategy = SearchStrategy.HYBRID,
         limit: int = 10,
         min_confidence: float = None,
-        include_cross_refs: bool = True
+        include_cross_refs: bool = True,
     ) -> SearchResults:
         """
         Search for NAICS codes using the specified strategy.
@@ -445,9 +454,7 @@ class NAICSSearchEngine:
             min_confidence = self.config.min_confidence
 
         # Check cache first
-        cached_result = self.search_cache.get(
-            query, strategy.value, limit, min_confidence
-        )
+        cached_result = self.search_cache.get(query, strategy.value, limit, min_confidence)
         if cached_result is not None:
             cached_result.query_metadata.processing_time_ms = int((time.time() - start_time) * 1000)
             return cached_result
@@ -455,7 +462,9 @@ class NAICSSearchEngine:
         # Smart fallback: Check if embeddings are available
         if strategy in [SearchStrategy.HYBRID, SearchStrategy.SEMANTIC]:
             if not self.embeddings_ready:
-                logger.warning(f"Embeddings not ready for {strategy.value} search, falling back to lexical search")
+                logger.warning(
+                    f"Embeddings not ready for {strategy.value} search, falling back to lexical search"
+                )
                 strategy = SearchStrategy.LEXICAL
 
         # Parse query intent
@@ -480,7 +489,9 @@ class NAICSSearchEngine:
             else:
                 matches = await self._lexical_search(query, expanded_terms)
         except EmbeddingError as e:
-            logger.warning(f"Embedding error during {strategy.value} search, falling back to lexical: {e}")
+            logger.warning(
+                f"Embedding error during {strategy.value} search, falling back to lexical: {e}"
+            )
             fallback_used = "lexical"
             try:
                 matches = await self._lexical_search(query, expanded_terms)
@@ -507,7 +518,9 @@ class NAICSSearchEngine:
         # Enhance matches with index term info
         for match in matches:
             if match.code.node_code in index_term_codes:
-                relevant_terms = [it for it in index_term_matches if it.naics_code == match.code.node_code]
+                relevant_terms = [
+                    it for it in index_term_matches if it.naics_code == match.code.node_code
+                ]
                 match.matched_index_terms = [it.index_term for it in relevant_terms[:3]]
                 # Boost confidence for index term matches
                 match.confidence.index_term = min(1.0, len(relevant_terms) * 0.3)
@@ -516,7 +529,9 @@ class NAICSSearchEngine:
         cross_refs_checked = 0
         if include_cross_refs and self.config.enable_cross_references:
             for match in matches[:20]:  # Only check top 20
-                exclusions = await self.cross_ref_service.check_exclusions(query, match.code.node_code)
+                exclusions = await self.cross_ref_service.check_exclusions(
+                    query, match.code.node_code
+                )
                 if exclusions:
                     match.exclusion_warnings = [e["warning"] for e in exclusions]
                     match.relevant_cross_refs = [
@@ -525,7 +540,7 @@ class NAICSSearchEngine:
                             reference_type="excludes",
                             reference_text=e["warning"],
                             target_code=e["target_code"],
-                            excluded_activity=e["excluded_activity"]
+                            excluded_activity=e["excluded_activity"],
                         )
                         for e in exclusions
                     ]
@@ -551,28 +566,21 @@ class NAICSSearchEngine:
             total_candidates_considered=len(matches),
             index_terms_searched=len(index_term_matches),
             cross_refs_checked=cross_refs_checked,
-            fallback_used=fallback_used
+            fallback_used=fallback_used,
         )
 
-        results = SearchResults(
-            matches=matches,
-            query_metadata=metadata
-        )
+        results = SearchResults(matches=matches, query_metadata=metadata)
 
         # Cache the results
         self.search_cache.put(query, strategy.value, limit, min_confidence, results)
 
         return results
 
-    async def _search_index_terms(self, query: str) -> List[IndexTerm]:
+    async def _search_index_terms(self, query: str) -> list[IndexTerm]:
         """Search the official NAICS index terms."""
         return await self.database.search_index_terms(query, limit=50)
 
-    async def _semantic_search(
-        self,
-        query: str,
-        expanded_terms: QueryTerms
-    ) -> List[NAICSMatch]:
+    async def _semantic_search(self, query: str, expanded_terms: QueryTerms) -> list[NAICSMatch]:
         """
         Perform semantic search using embeddings.
         """
@@ -582,13 +590,13 @@ class NAICSSearchEngine:
             query_embedding = cached
         else:
             query_embedding = self.embedder.embed_text(
-                query,
-                normalize=self.config.normalize_embeddings
+                query, normalize=self.config.normalize_embeddings
             )
             self.embedding_cache.put(query, query_embedding)
 
         # Search using DuckDB's vector similarity
-        results = self.database.connection.execute("""
+        results = self.database.connection.execute(
+            """
             SELECT
                 n.*,
                 array_cosine_similarity(e.embedding, ?::FLOAT[384]) as similarity
@@ -597,12 +605,9 @@ class NAICSSearchEngine:
             WHERE array_cosine_similarity(e.embedding, ?::FLOAT[384]) >= ?
             ORDER BY similarity DESC
             LIMIT ?
-        """, [
-            query_embedding.tolist(),
-            query_embedding.tolist(),
-            0.3,
-            self.config.max_candidates
-        ]).fetchall()
+        """,
+            [query_embedding.tolist(), query_embedding.tolist(), 0.3, self.config.max_candidates],
+        ).fetchall()
 
         # Convert to matches
         matches = []
@@ -615,23 +620,19 @@ class NAICSSearchEngine:
                 confidence=self.confidence_calculator.calculate(
                     semantic_score=similarity,
                     lexical_score=0.0,
-                    specificity_score=self._calculate_specificity_score(code.level)
+                    specificity_score=self._calculate_specificity_score(code.level),
                 ),
                 match_reasons=["Semantic similarity"],
                 embedding_similarity=similarity,
                 text_similarity=0.0,
                 hierarchy_path=code.get_hierarchy_path(),
-                rank=0
+                rank=0,
             )
             matches.append(match)
 
         return matches
 
-    async def _lexical_search(
-        self,
-        query: str,
-        expanded_terms: QueryTerms
-    ) -> List[NAICSMatch]:
+    async def _lexical_search(self, query: str, expanded_terms: QueryTerms) -> list[NAICSMatch]:
         """
         Perform lexical search using text matching.
         """
@@ -649,12 +650,11 @@ class NAICSSearchEngine:
                 subsector_code=result.get("subsector_code"),
                 industry_group_code=result.get("industry_group_code"),
                 naics_industry_code=result.get("naics_industry_code"),
-                raw_embedding_text=result.get("raw_embedding_text")
+                raw_embedding_text=result.get("raw_embedding_text"),
             )
 
             lexical_score = self._calculate_lexical_score(
-                query.lower(),
-                f"{code.title} {code.description or ''}".lower()
+                query.lower(), f"{code.title} {code.description or ''}".lower()
             )
 
             match = NAICSMatch(
@@ -662,24 +662,21 @@ class NAICSSearchEngine:
                 confidence=self.confidence_calculator.calculate(
                     semantic_score=0.0,
                     lexical_score=lexical_score,
-                    specificity_score=self._calculate_specificity_score(code.level)
+                    specificity_score=self._calculate_specificity_score(code.level),
                 ),
                 match_reasons=["Text match"],
                 embedding_similarity=0.0,
                 text_similarity=lexical_score,
                 hierarchy_path=code.get_hierarchy_path(),
-                rank=0
+                rank=0,
             )
             matches.append(match)
 
         return matches
 
     async def _hybrid_search(
-        self,
-        query: str,
-        expanded_terms: QueryTerms,
-        index_term_codes: set
-    ) -> List[NAICSMatch]:
+        self, query: str, expanded_terms: QueryTerms, index_term_codes: set
+    ) -> list[NAICSMatch]:
         """
         Perform hybrid search combining semantic and lexical.
         """
@@ -705,7 +702,7 @@ class NAICSSearchEngine:
                     semantic_score=sem_match.embedding_similarity,
                     lexical_score=lex_match.text_similarity,
                     index_term_score=index_term_score,
-                    specificity_score=self._calculate_specificity_score(sem_match.code.level)
+                    specificity_score=self._calculate_specificity_score(sem_match.code.level),
                 )
                 sem_match.text_similarity = lex_match.text_similarity
                 sem_match.match_reasons.append("Text match")
@@ -713,11 +710,7 @@ class NAICSSearchEngine:
                 combined[node_code] = lex_match
 
         # Sort by combined confidence
-        matches = sorted(
-            combined.values(),
-            key=lambda x: x.confidence.overall,
-            reverse=True
-        )
+        matches = sorted(combined.values(), key=lambda x: x.confidence.overall, reverse=True)
 
         return matches
 
@@ -748,6 +741,6 @@ class NAICSSearchEngine:
             NAICSLevel.NAICS_INDUSTRY: 0.8,
             NAICSLevel.INDUSTRY_GROUP: 0.6,
             NAICSLevel.SUBSECTOR: 0.4,
-            NAICSLevel.SECTOR: 0.2
+            NAICSLevel.SECTOR: 0.2,
         }
         return scores.get(level, 0.5)

@@ -21,11 +21,11 @@ Environment Variables:
     DEBUG: Alternative debug flag
 """
 
-from pathlib import Path
-from typing import Optional, Any
-from functools import lru_cache
 import logging
 import os
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -49,145 +49,85 @@ class SearchConfig(BaseSettings):
     )
 
     # Database configuration
-    database_path: Optional[Path] = Field(
-        default=None,
-        description="Path to DuckDB database file"
-    )
+    database_path: Path | None = Field(default=None, description="Path to DuckDB database file")
     connection_pool_size: int = Field(
-        default=5,
-        ge=1,
-        le=50,
-        description="Number of database connections to pool"
+        default=5, ge=1, le=50, description="Number of database connections to pool"
     )
     query_timeout_seconds: int = Field(
-        default=5,
-        ge=1,
-        le=300,
-        description="Query timeout in seconds"
+        default=5, ge=1, le=300, description="Query timeout in seconds"
     )
 
     # Embedding configuration
     embedding_model: str = Field(
-        default="all-MiniLM-L6-v2",
-        min_length=1,
-        description="Sentence transformer model name"
+        default="all-MiniLM-L6-v2", min_length=1, description="Sentence transformer model name"
     )
     embedding_dimension: int = Field(
-        default=384,
-        ge=32,
-        le=4096,
-        description="Embedding vector dimension (must match model)"
+        default=384, ge=32, le=4096, description="Embedding vector dimension (must match model)"
     )
     batch_size: int = Field(
-        default=32,
-        ge=1,
-        le=512,
-        description="Batch size for embedding generation"
+        default=32, ge=1, le=512, description="Batch size for embedding generation"
     )
     normalize_embeddings: bool = Field(
-        default=True,
-        description="Normalize embeddings for cosine similarity"
+        default=True, description="Normalize embeddings for cosine similarity"
     )
 
     # Search behavior - hybrid search weights
     hybrid_weight_semantic: float = Field(
-        default=0.7,
-        ge=0.0,
-        le=1.0,
-        description="Weight for semantic search (0.0-1.0)"
+        default=0.7, ge=0.0, le=1.0, description="Weight for semantic search (0.0-1.0)"
     )
     hybrid_weight_lexical: float = Field(
-        default=0.3,
-        ge=0.0,
-        le=1.0,
-        description="Weight for lexical search (0.0-1.0)"
+        default=0.3, ge=0.0, le=1.0, description="Weight for lexical search (0.0-1.0)"
     )
     boost_index_terms: float = Field(
-        default=1.5,
-        ge=1.0,
-        le=10.0,
-        description="Boost factor for official NAICS index terms"
+        default=1.5, ge=1.0, le=10.0, description="Boost factor for official NAICS index terms"
     )
 
     # Performance tuning
     max_candidates: int = Field(
-        default=500,
-        ge=10,
-        le=5000,
-        description="Maximum candidates to consider in search"
+        default=500, ge=10, le=5000, description="Maximum candidates to consider in search"
     )
     min_confidence: float = Field(
-        default=0.3,
-        ge=0.0,
-        le=1.0,
-        description="Minimum confidence threshold for results"
+        default=0.3, ge=0.0, le=1.0, description="Minimum confidence threshold for results"
     )
     default_limit: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Default number of results to return"
+        default=10, ge=1, le=100, description="Default number of results to return"
     )
 
     # User experience
     explain_results: bool = Field(
-        default=True,
-        description="Include explanations in search results"
+        default=True, description="Include explanations in search results"
     )
     include_hierarchy: bool = Field(
-        default=True,
-        description="Include hierarchy information in results"
+        default=True, description="Include hierarchy information in results"
     )
 
     # Query expansion
     enable_query_expansion: bool = Field(
-        default=True,
-        description="Enable synonym and term expansion"
+        default=True, description="Enable synonym and term expansion"
     )
     max_expansion_terms: int = Field(
-        default=5,
-        ge=0,
-        le=20,
-        description="Maximum terms to add via expansion"
+        default=5, ge=0, le=20, description="Maximum terms to add via expansion"
     )
 
     # Cross-reference integration
-    enable_cross_references: bool = Field(
-        default=True,
-        description="Enable cross-reference lookup"
-    )
+    enable_cross_references: bool = Field(default=True, description="Enable cross-reference lookup")
     cross_ref_penalty: float = Field(
-        default=0.7,
-        ge=0.0,
-        le=1.0,
-        description="Score penalty for excluded activities"
+        default=0.7, ge=0.0, le=1.0, description="Score penalty for excluded activities"
     )
 
     # Observability
-    enable_audit_log: bool = Field(
-        default=True,
-        description="Enable search audit logging"
-    )
+    enable_audit_log: bool = Field(default=True, description="Enable search audit logging")
     audit_retention_days: int = Field(
-        default=90,
-        ge=1,
-        le=365,
-        description="Days to retain audit logs"
+        default=90, ge=1, le=365, description="Days to retain audit logs"
     )
-    log_slow_queries: bool = Field(
-        default=True,
-        description="Log queries exceeding threshold"
-    )
+    log_slow_queries: bool = Field(default=True, description="Log queries exceeding threshold")
     slow_query_threshold_ms: int = Field(
-        default=200,
-        ge=10,
-        le=10000,
-        description="Slow query threshold in milliseconds"
+        default=200, ge=10, le=10000, description="Slow query threshold in milliseconds"
     )
 
     @field_validator("database_path", mode="before")
     @classmethod
-    def resolve_database_path(cls, v: Any) -> Optional[Path]:
+    def resolve_database_path(cls, v: Any) -> Path | None:
         """Convert string paths to Path objects."""
         if v is None:
             return None
@@ -201,8 +141,7 @@ class SearchConfig(BaseSettings):
         total = self.hybrid_weight_semantic + self.hybrid_weight_lexical
         if abs(total - 1.0) > 0.01:
             logger.warning(
-                f"Hybrid weights sum to {total:.2f}, expected 1.0. "
-                "Adjusting lexical weight."
+                f"Hybrid weights sum to {total:.2f}, expected 1.0. Adjusting lexical weight."
             )
             self.hybrid_weight_lexical = 1.0 - self.hybrid_weight_semantic
         return self
@@ -216,14 +155,15 @@ class SearchConfig(BaseSettings):
         # Try to find the database in standard locations
         try:
             import naics_mcp_server
+
             package_dir = Path(naics_mcp_server.__file__).parent
             project_root = package_dir.parent
 
             # Check locations in priority order
             candidates = [
                 project_root / "data" / "naics.duckdb",  # Development
-                package_dir / "data" / "naics.duckdb",   # Bundled
-                Path.cwd() / "data" / "naics.duckdb",    # Current directory
+                package_dir / "data" / "naics.duckdb",  # Bundled
+                Path.cwd() / "data" / "naics.duckdb",  # Current directory
             ]
 
             for path in candidates:
@@ -272,9 +212,7 @@ class ServerConfig(BaseSettings):
     )
 
     name: str = Field(
-        default="NAICS Classification Assistant",
-        min_length=1,
-        description="Server display name"
+        default="NAICS Classification Assistant", min_length=1, description="Server display name"
     )
     description: str = Field(
         default=(
@@ -282,27 +220,16 @@ class ServerConfig(BaseSettings):
             "I help you find the right NAICS codes using natural language descriptions, "
             "with support for hierarchical navigation and cross-reference lookup."
         ),
-        description="Server description"
+        description="Server description",
     )
     version: str = Field(
-        default="0.1.0",
-        pattern=r"^\d+\.\d+\.\d+",
-        description="Server version (semver)"
+        default="0.1.0", pattern=r"^\d+\.\d+\.\d+", description="Server version (semver)"
     )
 
     # MCP server settings
-    stateless_http: bool = Field(
-        default=False,
-        description="Run in stateless HTTP mode"
-    )
-    enable_cors: bool = Field(
-        default=True,
-        description="Enable CORS for browser clients"
-    )
-    debug: bool = Field(
-        default=False,
-        description="Enable debug mode"
-    )
+    stateless_http: bool = Field(default=False, description="Run in stateless HTTP mode")
+    enable_cors: bool = Field(default=True, description="Enable CORS for browser clients")
+    debug: bool = Field(default=False, description="Enable debug mode")
 
     @model_validator(mode="before")
     @classmethod
@@ -350,8 +277,7 @@ class AppConfig(BaseModel):
         # Check database path
         if self.search.database_path is None:
             raise ConfigurationError(
-                "Database path not configured",
-                config_key="NAICS_DATABASE_PATH"
+                "Database path not configured", config_key="NAICS_DATABASE_PATH"
             )
 
         # Check if database directory exists (for new databases)
@@ -362,8 +288,7 @@ class AppConfig(BaseModel):
                 warnings.append(f"Created database directory: {db_dir}")
             except OSError as e:
                 raise ConfigurationError(
-                    f"Cannot create database directory: {e}",
-                    config_key="NAICS_DATABASE_PATH"
+                    f"Cannot create database directory: {e}", config_key="NAICS_DATABASE_PATH"
                 )
 
         # Warn about debug mode in production
@@ -385,7 +310,7 @@ class AppConfig(BaseModel):
 
 
 # Singleton instance management
-_config_instance: Optional[AppConfig] = None
+_config_instance: AppConfig | None = None
 
 
 def get_config() -> AppConfig:

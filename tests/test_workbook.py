@@ -4,12 +4,15 @@ Unit tests for ClassificationWorkbook.
 Tests workbook operations including entry creation, retrieval, search, and templates.
 """
 
-import pytest
 from datetime import datetime
-from typing import Dict, Any
+
+import pytest
 
 from naics_mcp_server.core.classification_workbook import (
-    ClassificationWorkbook, WorkbookEntry, FormType, FORM_TEMPLATES
+    FORM_TEMPLATES,
+    ClassificationWorkbook,
+    FormType,
+    WorkbookEntry,
 )
 from naics_mcp_server.core.database import NAICSDatabase
 
@@ -23,7 +26,7 @@ class TestWorkbookEntry:
             entry_id="test123",
             form_type=FormType.CLASSIFICATION_ANALYSIS,
             label="Test Classification",
-            content={"business_description": "Dog food manufacturer"}
+            content={"business_description": "Dog food manufacturer"},
         )
 
         assert entry.entry_id == "test123"
@@ -34,10 +37,7 @@ class TestWorkbookEntry:
     def test_entry_default_values(self):
         """Should have correct default values."""
         entry = WorkbookEntry(
-            entry_id="test123",
-            form_type=FormType.CUSTOM,
-            label="Test",
-            content={}
+            entry_id="test123", form_type=FormType.CUSTOM, label="Test", content={}
         )
 
         assert entry.metadata == {}
@@ -58,7 +58,7 @@ class TestWorkbookEntry:
             metadata={"source": "manual"},
             session_id="sess_abc",
             tags=["retail", "small-business"],
-            confidence_score=0.85
+            confidence_score=0.85,
         )
 
         result = entry.to_dict()
@@ -123,10 +123,10 @@ class TestClassificationWorkbook:
             label="Dog Food Analysis",
             content={
                 "business_description": "Company manufactures dog food",
-                "primary_activity": "Dog food manufacturing"
+                "primary_activity": "Dog food manufacturing",
             },
             tags=["pet-food", "manufacturing"],
-            confidence_score=0.85
+            confidence_score=0.85,
         )
 
         assert entry is not None
@@ -143,7 +143,7 @@ class TestClassificationWorkbook:
         created = await workbook.create_entry(
             form_type=FormType.BUSINESS_PROFILE,
             label="Test Business",
-            content={"business_name": "Test Corp"}
+            content={"business_name": "Test Corp"},
         )
 
         retrieved = await workbook.get_entry(created.entry_id)
@@ -167,24 +167,20 @@ class TestClassificationWorkbook:
         await workbook.create_entry(
             form_type=FormType.CLASSIFICATION_ANALYSIS,
             label="Classification 1",
-            content={"test": "data"}
+            content={"test": "data"},
         )
 
         await workbook.create_entry(
-            form_type=FormType.BUSINESS_PROFILE,
-            label="Business 1",
-            content={"test": "data"}
+            form_type=FormType.BUSINESS_PROFILE, label="Business 1", content={"test": "data"}
         )
 
         await workbook.create_entry(
             form_type=FormType.CLASSIFICATION_ANALYSIS,
             label="Classification 2",
-            content={"test": "data"}
+            content={"test": "data"},
         )
 
-        results = await workbook.search_entries(
-            form_type=FormType.CLASSIFICATION_ANALYSIS
-        )
+        results = await workbook.search_entries(form_type=FormType.CLASSIFICATION_ANALYSIS)
 
         assert len(results) == 2
         assert all(e.form_type == FormType.CLASSIFICATION_ANALYSIS for e in results)
@@ -192,15 +188,9 @@ class TestClassificationWorkbook:
     @pytest.mark.asyncio
     async def test_search_by_session(self, workbook: ClassificationWorkbook):
         """Should find entries by session ID."""
-        await workbook.create_entry(
-            form_type=FormType.CUSTOM,
-            label="Session Entry",
-            content={}
-        )
+        await workbook.create_entry(form_type=FormType.CUSTOM, label="Session Entry", content={})
 
-        results = await workbook.search_entries(
-            session_id=workbook.current_session_id
-        )
+        results = await workbook.search_entries(session_id=workbook.current_session_id)
 
         assert len(results) >= 1
         assert all(e.session_id == workbook.current_session_id for e in results)
@@ -211,17 +201,13 @@ class TestClassificationWorkbook:
         await workbook.create_entry(
             form_type=FormType.CLASSIFICATION_ANALYSIS,
             label="Dog Food Classification",
-            content={
-                "business_description": "Manufacturing premium dog food products"
-            }
+            content={"business_description": "Manufacturing premium dog food products"},
         )
 
         await workbook.create_entry(
             form_type=FormType.CLASSIFICATION_ANALYSIS,
             label="Soft Drink Classification",
-            content={
-                "business_description": "Bottling carbonated beverages"
-            }
+            content={"business_description": "Bottling carbonated beverages"},
         )
 
         results = await workbook.search_entries(search_text="dog food")
@@ -236,14 +222,14 @@ class TestClassificationWorkbook:
             form_type=FormType.BUSINESS_PROFILE,
             label="Manufacturing Business",
             content={},
-            tags=["manufacturing", "food"]
+            tags=["manufacturing", "food"],
         )
 
         await workbook.create_entry(
             form_type=FormType.BUSINESS_PROFILE,
             label="Retail Business",
             content={},
-            tags=["retail", "services"]
+            tags=["retail", "services"],
         )
 
         results = await workbook.search_entries(tags=["manufacturing"])
@@ -255,16 +241,14 @@ class TestClassificationWorkbook:
     async def test_search_by_parent_entry(self, workbook: ClassificationWorkbook):
         """Should find child entries by parent ID."""
         parent = await workbook.create_entry(
-            form_type=FormType.CLASSIFICATION_ANALYSIS,
-            label="Parent Analysis",
-            content={}
+            form_type=FormType.CLASSIFICATION_ANALYSIS, label="Parent Analysis", content={}
         )
 
         await workbook.create_entry(
             form_type=FormType.CROSS_REFERENCE_NOTES,
             label="Follow-up Notes",
             content={},
-            parent_entry_id=parent.entry_id
+            parent_entry_id=parent.entry_id,
         )
 
         results = await workbook.search_entries(parent_entry_id=parent.entry_id)
@@ -277,11 +261,7 @@ class TestClassificationWorkbook:
         """Should respect limit parameter."""
         # Create multiple entries
         for i in range(5):
-            await workbook.create_entry(
-                form_type=FormType.CUSTOM,
-                label=f"Entry {i}",
-                content={}
-            )
+            await workbook.create_entry(form_type=FormType.CUSTOM, label=f"Entry {i}", content={})
 
         results = await workbook.search_entries(limit=3)
 
@@ -309,11 +289,7 @@ class TestClassificationWorkbook:
             form_type=FormType.RESEARCH_NOTES,
             label="Research Entry",
             content={"research_question": "What NAICS code for dog food?"},
-            metadata={
-                "analyst": "Test User",
-                "priority": "high",
-                "reviewed": False
-            }
+            metadata={"analyst": "Test User", "priority": "high", "reviewed": False},
         )
 
         retrieved = await workbook.get_entry(entry.entry_id)
@@ -334,7 +310,7 @@ class TestClassificationWorkbook:
                     "rationale": "Primary activity matches",
                     "pros": ["Exact match for activity", "High confidence"],
                     "cons": ["Consider if primary revenue source"],
-                    "confidence": 0.92
+                    "confidence": 0.92,
                 },
                 {
                     "code": "311119",
@@ -342,19 +318,19 @@ class TestClassificationWorkbook:
                     "rationale": "Alternative if not primarily dog/cat",
                     "pros": ["Broader category"],
                     "cons": ["Less specific"],
-                    "confidence": 0.75
-                }
+                    "confidence": 0.75,
+                },
             ],
             "decision": {
                 "selected_code": "311111",
-                "reasoning": "Primary activity is dog food manufacturing"
-            }
+                "reasoning": "Primary activity is dog food manufacturing",
+            },
         }
 
         entry = await workbook.create_entry(
             form_type=FormType.CLASSIFICATION_ANALYSIS,
             label="Complex Analysis",
-            content=complex_content
+            content=complex_content,
         )
 
         retrieved = await workbook.get_entry(entry.entry_id)
@@ -373,9 +349,7 @@ class TestExtractSearchText:
 
     def test_extract_from_description(self, workbook: ClassificationWorkbook):
         """Should extract text from description fields."""
-        content = {
-            "business_description": "Manufacturing premium dog food"
-        }
+        content = {"business_description": "Manufacturing premium dog food"}
 
         search_text = workbook._extract_search_text(content)
 
@@ -387,7 +361,7 @@ class TestExtractSearchText:
             # These are top-level keys that get extracted
             "reasoning": "This is the primary reasoning",
             "conclusion": "Final conclusion text",
-            "analysis": "Detailed analysis here"
+            "analysis": "Detailed analysis here",
         }
 
         search_text = workbook._extract_search_text(content)
@@ -427,8 +401,8 @@ class TestWorkbookEdgeCases:
             label="Café Business",
             content={
                 "business_name": "Café Résumé",
-                "business_description": "Serving café au lait and croissants"
-            }
+                "business_description": "Serving café au lait and croissants",
+            },
         )
 
         retrieved = await workbook.get_entry(entry.entry_id)
@@ -441,9 +415,7 @@ class TestWorkbookEdgeCases:
         entry = await workbook.create_entry(
             form_type=FormType.CUSTOM,
             label="Test & Analysis <2024>",
-            content={
-                "notes": "Contains 'quotes' and \"double quotes\""
-            }
+            content={"notes": "Contains 'quotes' and \"double quotes\""},
         )
 
         retrieved = await workbook.get_entry(entry.entry_id)
@@ -454,9 +426,7 @@ class TestWorkbookEdgeCases:
     async def test_create_entry_empty_content(self, workbook: ClassificationWorkbook):
         """Should handle empty content."""
         entry = await workbook.create_entry(
-            form_type=FormType.CUSTOM,
-            label="Empty Entry",
-            content={}
+            form_type=FormType.CUSTOM, label="Empty Entry", content={}
         )
 
         retrieved = await workbook.get_entry(entry.entry_id)
@@ -469,11 +439,7 @@ class TestWorkbookEdgeCases:
         entry = await workbook.create_entry(
             form_type=FormType.BUSINESS_PROFILE,
             label="Partial Entry",
-            content={
-                "business_name": "Test",
-                "business_description": None,
-                "notes": None
-            }
+            content={"business_name": "Test", "business_description": None, "notes": None},
         )
 
         retrieved = await workbook.get_entry(entry.entry_id)
@@ -483,9 +449,7 @@ class TestWorkbookEdgeCases:
     @pytest.mark.asyncio
     async def test_search_no_results(self, workbook: ClassificationWorkbook):
         """Should return empty list when no matches."""
-        results = await workbook.search_entries(
-            search_text="xyznonexistentterm123"
-        )
+        results = await workbook.search_entries(search_text="xyznonexistentterm123")
 
         assert results == []
 
@@ -493,17 +457,11 @@ class TestWorkbookEdgeCases:
     async def test_multiple_tag_search(self, workbook: ClassificationWorkbook):
         """Should find entries matching any of multiple tags."""
         await workbook.create_entry(
-            form_type=FormType.CUSTOM,
-            label="Entry A",
-            content={},
-            tags=["tag1", "tag2"]
+            form_type=FormType.CUSTOM, label="Entry A", content={}, tags=["tag1", "tag2"]
         )
 
         await workbook.create_entry(
-            form_type=FormType.CUSTOM,
-            label="Entry B",
-            content={},
-            tags=["tag3", "tag4"]
+            form_type=FormType.CUSTOM, label="Entry B", content={}, tags=["tag3", "tag4"]
         )
 
         # Should find Entry A (has tag1)
@@ -530,9 +488,9 @@ class TestWorkbookIntegration:
                 "business_name": "Acme Pet Foods Inc.",
                 "business_description": "Manufacturing premium dog and cat food",
                 "primary_products_services": ["Dog food", "Cat food"],
-                "primary_customers": "Pet retailers and distributors"
+                "primary_customers": "Pet retailers and distributors",
             },
-            tags=["pet-food", "manufacturing", "B2B"]
+            tags=["pet-food", "manufacturing", "B2B"],
         )
 
         # Step 2: Create classification analysis
@@ -545,16 +503,16 @@ class TestWorkbookIntegration:
                     {
                         "code": "311111",
                         "title": "Dog and Cat Food Manufacturing",
-                        "confidence": 0.95
+                        "confidence": 0.95,
                     }
                 ],
                 "decision": {
                     "selected_code": "311111",
-                    "reasoning": "Primary activity is dog and cat food manufacturing"
-                }
+                    "reasoning": "Primary activity is dog and cat food manufacturing",
+                },
             },
             parent_entry_id=profile.entry_id,
-            confidence_score=0.95
+            confidence_score=0.95,
         )
 
         # Step 3: Add cross-reference notes
@@ -564,13 +522,13 @@ class TestWorkbookIntegration:
             content={
                 "source_code": "311111",
                 "exclusions_found": [],
-                "conclusion": "No exclusions apply"
+                "conclusion": "No exclusions apply",
             },
-            parent_entry_id=analysis.entry_id
+            parent_entry_id=analysis.entry_id,
         )
 
         # Verify chain
-        retrieved_profile = await workbook.get_entry(profile.entry_id)
+        _retrieved_profile = await workbook.get_entry(profile.entry_id)
         retrieved_analysis = await workbook.get_entry(analysis.entry_id)
         retrieved_notes = await workbook.get_entry(notes.entry_id)
 
@@ -590,25 +548,13 @@ class TestWorkbookIntegration:
 
         assert workbook1.current_session_id != workbook2.current_session_id
 
-        await workbook1.create_entry(
-            form_type=FormType.CUSTOM,
-            label="Session 1 Entry",
-            content={}
-        )
+        await workbook1.create_entry(form_type=FormType.CUSTOM, label="Session 1 Entry", content={})
 
-        await workbook2.create_entry(
-            form_type=FormType.CUSTOM,
-            label="Session 2 Entry",
-            content={}
-        )
+        await workbook2.create_entry(form_type=FormType.CUSTOM, label="Session 2 Entry", content={})
 
-        session1_entries = await workbook1.search_entries(
-            session_id=workbook1.current_session_id
-        )
+        session1_entries = await workbook1.search_entries(session_id=workbook1.current_session_id)
 
-        session2_entries = await workbook2.search_entries(
-            session_id=workbook2.current_session_id
-        )
+        session2_entries = await workbook2.search_entries(session_id=workbook2.current_session_id)
 
         # Each session should only find its own entries
         assert all(e.session_id == workbook1.current_session_id for e in session1_entries)

@@ -12,20 +12,22 @@ import re
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
-from pathlib import Path
-from typing import Any, Callable, Dict, Optional, TypeVar, Union
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Any, TypeVar
 
 # Context variables for request tracking
-_request_id: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
-_session_id: ContextVar[Optional[str]] = ContextVar("session_id", default=None)
-_tool_name: ContextVar[Optional[str]] = ContextVar("tool_name", default=None)
+_request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
+_session_id: ContextVar[str | None] = ContextVar("session_id", default=None)
+_tool_name: ContextVar[str | None] = ContextVar("tool_name", default=None)
 
 
 # --- Configuration ---
+
 
 class LogConfig:
     """Logging configuration from environment variables."""
@@ -41,9 +43,9 @@ class LogConfig:
         # Sensitive data handling
         self.max_description_length = int(os.getenv("NAICS_LOG_MAX_DESC_LENGTH", "100"))
         self.redact_patterns = [
-            r'\b\d{9}\b',  # SSN-like
-            r'\b\d{10,}\b',  # Long numbers (phone, account)
-            r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Email
+            r"\b\d{9}\b",  # SSN-like
+            r"\b\d{10,}\b",  # Long numbers (phone, account)
+            r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",  # Email
         ]
 
 
@@ -53,10 +55,9 @@ _config = LogConfig()
 
 # --- Context Management ---
 
+
 def set_request_context(
-    request_id: Optional[str] = None,
-    session_id: Optional[str] = None,
-    tool_name: Optional[str] = None
+    request_id: str | None = None, session_id: str | None = None, tool_name: str | None = None
 ) -> None:
     """
     Set the current request context for logging.
@@ -78,12 +79,12 @@ def clear_request_context() -> None:
     _tool_name.set(None)
 
 
-def get_request_context() -> Dict[str, Optional[str]]:
+def get_request_context() -> dict[str, str | None]:
     """Get the current request context."""
     return {
         "request_id": _request_id.get(),
         "session_id": _session_id.get(),
-        "tool": _tool_name.get()
+        "tool": _tool_name.get(),
     }
 
 
@@ -94,7 +95,8 @@ def generate_request_id() -> str:
 
 # --- Sensitive Data Handling ---
 
-def sanitize_text(text: str, max_length: Optional[int] = None) -> str:
+
+def sanitize_text(text: str, max_length: int | None = None) -> str:
     """
     Sanitize text for logging by truncating and redacting sensitive data.
 
@@ -122,7 +124,7 @@ def sanitize_text(text: str, max_length: Optional[int] = None) -> str:
     return sanitized
 
 
-def sanitize_dict(data: Dict[str, Any], sensitive_keys: Optional[set] = None) -> Dict[str, Any]:
+def sanitize_dict(data: dict[str, Any], sensitive_keys: set | None = None) -> dict[str, Any]:
     """
     Sanitize a dictionary for logging.
 
@@ -160,6 +162,7 @@ def sanitize_dict(data: Dict[str, Any], sensitive_keys: Optional[set] = None) ->
 
 # --- JSON Formatter ---
 
+
 class JSONFormatter(logging.Formatter):
     """
     Formats log records as JSON for structured logging.
@@ -173,7 +176,7 @@ class JSONFormatter(logging.Formatter):
         log_data = {
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage()
+            "message": record.getMessage(),
         }
 
         if self.include_timestamp:
@@ -197,7 +200,7 @@ class JSONFormatter(logging.Formatter):
             log_data["source"] = {
                 "file": record.pathname,
                 "line": record.lineno,
-                "function": record.funcName
+                "function": record.funcName,
             }
 
         return json.dumps(log_data, default=str)
@@ -229,6 +232,7 @@ class TextFormatter(logging.Formatter):
 
 # --- Logger Wrapper ---
 
+
 class StructuredLogger:
     """
     A logger wrapper that supports structured data logging.
@@ -237,24 +241,24 @@ class StructuredLogger:
     def __init__(self, name: str):
         self.logger = logging.getLogger(name)
 
-    def _log(self, level: int, message: str, data: Optional[Dict[str, Any]] = None, **kwargs):
+    def _log(self, level: int, message: str, data: dict[str, Any] | None = None, **kwargs):
         """Internal logging method that attaches structured data."""
         extra = {"data": data} if data else {}
         self.logger.log(level, message, extra=extra, **kwargs)
 
-    def debug(self, message: str, data: Optional[Dict[str, Any]] = None, **kwargs):
+    def debug(self, message: str, data: dict[str, Any] | None = None, **kwargs):
         self._log(logging.DEBUG, message, data, **kwargs)
 
-    def info(self, message: str, data: Optional[Dict[str, Any]] = None, **kwargs):
+    def info(self, message: str, data: dict[str, Any] | None = None, **kwargs):
         self._log(logging.INFO, message, data, **kwargs)
 
-    def warning(self, message: str, data: Optional[Dict[str, Any]] = None, **kwargs):
+    def warning(self, message: str, data: dict[str, Any] | None = None, **kwargs):
         self._log(logging.WARNING, message, data, **kwargs)
 
-    def error(self, message: str, data: Optional[Dict[str, Any]] = None, **kwargs):
+    def error(self, message: str, data: dict[str, Any] | None = None, **kwargs):
         self._log(logging.ERROR, message, data, **kwargs)
 
-    def exception(self, message: str, data: Optional[Dict[str, Any]] = None, **kwargs):
+    def exception(self, message: str, data: dict[str, Any] | None = None, **kwargs):
         self._log(logging.ERROR, message, data, exc_info=True, **kwargs)
 
 
@@ -273,10 +277,9 @@ def get_logger(name: str) -> StructuredLogger:
 
 # --- Setup Functions ---
 
+
 def setup_logging(
-    level: Optional[str] = None,
-    format: Optional[str] = None,
-    log_file: Optional[str] = None
+    level: str | None = None, format: str | None = None, log_file: str | None = None
 ) -> None:
     """
     Configure logging for the application.
@@ -322,9 +325,7 @@ def setup_logging(
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         file_handler = RotatingFileHandler(
-            file_path,
-            maxBytes=config.max_size_mb * 1024 * 1024,
-            backupCount=config.retention_count
+            file_path, maxBytes=config.max_size_mb * 1024 * 1024, backupCount=config.retention_count
         )
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
@@ -365,11 +366,7 @@ def log_tool_call(func: F) -> F:
                 session_id = getattr(arg.request_context, "session_id", None)
                 break
 
-        set_request_context(
-            request_id=request_id,
-            session_id=session_id,
-            tool_name=tool_name
-        )
+        set_request_context(request_id=request_id, session_id=session_id, tool_name=tool_name)
 
         start_time = time.time()
 
@@ -380,9 +377,7 @@ def log_tool_call(func: F) -> F:
                 input_summary = sanitize_dict(vars(arg))
                 break
 
-        logger.info(f"Tool invoked: {tool_name}", data={
-            "input_preview": input_summary
-        })
+        logger.info(f"Tool invoked: {tool_name}", data={"input_preview": input_summary})
 
         try:
             result = await func(*args, **kwargs)
@@ -390,28 +385,30 @@ def log_tool_call(func: F) -> F:
             latency_ms = int((time.time() - start_time) * 1000)
 
             # Log success
-            logger.info(f"Tool completed: {tool_name}", data={
-                "latency_ms": latency_ms,
-                "success": True
-            })
+            logger.info(
+                f"Tool completed: {tool_name}", data={"latency_ms": latency_ms, "success": True}
+            )
 
             # Log slow requests
             if latency_ms > 200:
-                logger.warning(f"Slow tool execution: {tool_name}", data={
-                    "latency_ms": latency_ms,
-                    "threshold_ms": 200
-                })
+                logger.warning(
+                    f"Slow tool execution: {tool_name}",
+                    data={"latency_ms": latency_ms, "threshold_ms": 200},
+                )
 
             return result
 
         except Exception as e:
             latency_ms = int((time.time() - start_time) * 1000)
 
-            logger.exception(f"Tool failed: {tool_name}", data={
-                "latency_ms": latency_ms,
-                "error_type": type(e).__name__,
-                "error_message": str(e)[:200]
-            })
+            logger.exception(
+                f"Tool failed: {tool_name}",
+                data={
+                    "latency_ms": latency_ms,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)[:200],
+                },
+            )
             raise
 
         finally:
@@ -429,6 +426,7 @@ def log_operation(operation_name: str):
         async def generate_embeddings():
             ...
     """
+
     def decorator(func: F) -> F:
         logger = get_logger(func.__module__)
 
@@ -442,18 +440,16 @@ def log_operation(operation_name: str):
                 result = await func(*args, **kwargs)
                 latency_ms = int((time.time() - start_time) * 1000)
 
-                logger.info(f"Completed: {operation_name}", data={
-                    "latency_ms": latency_ms
-                })
+                logger.info(f"Completed: {operation_name}", data={"latency_ms": latency_ms})
 
                 return result
 
             except Exception as e:
                 latency_ms = int((time.time() - start_time) * 1000)
-                logger.error(f"Failed: {operation_name}", data={
-                    "latency_ms": latency_ms,
-                    "error": str(e)[:200]
-                })
+                logger.error(
+                    f"Failed: {operation_name}",
+                    data={"latency_ms": latency_ms, "error": str(e)[:200]},
+                )
                 raise
 
         return wrapper  # type: ignore
@@ -463,29 +459,32 @@ def log_operation(operation_name: str):
 
 # --- Startup/Shutdown Logging ---
 
-def log_server_start(config: Dict[str, Any]) -> None:
+
+def log_server_start(config: dict[str, Any]) -> None:
     """Log server startup with configuration summary."""
     logger = get_logger("naics_mcp_server.server")
 
     # Sanitize config before logging
     safe_config = sanitize_dict(config)
 
-    logger.info("NAICS MCP Server starting", data={
-        "config": safe_config,
-        "log_level": _config.level,
-        "log_format": _config.format
-    })
+    logger.info(
+        "NAICS MCP Server starting",
+        data={"config": safe_config, "log_level": _config.level, "log_format": _config.format},
+    )
 
 
-def log_server_ready(stats: Dict[str, Any]) -> None:
+def log_server_ready(stats: dict[str, Any]) -> None:
     """Log server ready with data statistics."""
     logger = get_logger("naics_mcp_server.server")
 
-    logger.info("NAICS MCP Server ready", data={
-        "naics_codes": stats.get("total_codes", 0),
-        "cross_references": stats.get("total_cross_references", 0),
-        "embeddings": stats.get("embeddings_count", 0)
-    })
+    logger.info(
+        "NAICS MCP Server ready",
+        data={
+            "naics_codes": stats.get("total_codes", 0),
+            "cross_references": stats.get("total_cross_references", 0),
+            "embeddings": stats.get("embeddings_count", 0),
+        },
+    )
 
 
 def log_server_shutdown() -> None:

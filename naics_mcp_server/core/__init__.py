@@ -8,6 +8,20 @@ from .search_engine import NAICSSearchEngine, generate_search_guidance
 from .query_expansion import QueryExpander, SmartQueryParser
 from .cross_reference import CrossReferenceParser, CrossReferenceService
 from .classification_workbook import ClassificationWorkbook, FormType, WorkbookEntry
+from .validation import (
+    ValidationConfig,
+    ValidationResult,
+    validate_description,
+    validate_naics_code,
+    validate_naics_code_exists,
+    validate_search_query,
+    validate_limit,
+    validate_confidence,
+    validate_batch_descriptions,
+    validate_batch_codes,
+    validate_strategy,
+    normalize_text,
+)
 from .errors import (
     NAICSException,
     DatabaseError,
@@ -50,6 +64,19 @@ __all__ = [
     "ClassificationWorkbook",
     "FormType",
     "WorkbookEntry",
+    # Validation
+    "ValidationConfig",
+    "ValidationResult",
+    "validate_description",
+    "validate_naics_code",
+    "validate_naics_code_exists",
+    "validate_search_query",
+    "validate_limit",
+    "validate_confidence",
+    "validate_batch_descriptions",
+    "validate_batch_codes",
+    "validate_strategy",
+    "normalize_text",
     # Errors
     "NAICSException",
     "DatabaseError",

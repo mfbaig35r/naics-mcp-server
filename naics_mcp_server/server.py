@@ -37,6 +37,17 @@ from .core.errors import (
     NAICSException, DatabaseError, NotFoundError, ValidationError,
     SearchError, handle_tool_error
 )
+from .core.validation import (
+    validate_description,
+    validate_naics_code,
+    validate_search_query,
+    validate_limit,
+    validate_confidence,
+    validate_batch_descriptions,
+    validate_batch_codes,
+    validate_strategy,
+    ValidationConfig,
+)
 from .tools.workbook_tools import (
     WorkbookWriteRequest, WorkbookSearchRequest, WorkbookTemplateRequest
 )
@@ -316,8 +327,36 @@ async def search_naics_codes(
     """
     app_ctx: AppContext = ctx.request_context.lifespan_context
 
+    # Validate inputs
+    try:
+        query_result = validate_search_query(request.query)
+        validated_query = query_result.value
+
+        strategy_result = validate_strategy(request.strategy)
+        validated_strategy = strategy_result.value
+
+        limit_result = validate_limit(request.limit)
+        validated_limit = limit_result.value
+
+        confidence_result = validate_confidence(request.min_confidence)
+        validated_confidence = confidence_result.value
+    except ValidationError as e:
+        logger.warning("Search validation failed", data={
+            "error": e.message,
+            "field": e.details.get("field")
+        })
+        return SearchResponse(
+            query=request.query,
+            results=[],
+            expanded=False,
+            strategy_used=request.strategy,
+            total_found=0,
+            search_time_ms=0,
+            guidance=[f"Validation error: {e.message}"]
+        )
+
     # Start audit event
-    search_event = SearchEvent.start(request.query, request.strategy)
+    search_event = SearchEvent.start(validated_query, validated_strategy)
 
     try:
         # Map strategy
@@ -329,14 +368,14 @@ async def search_naics_codes(
             "lexical": SearchStrategy.LEXICAL,
             "exact": SearchStrategy.LEXICAL
         }
-        strategy = strategy_map.get(request.strategy, SearchStrategy.HYBRID)
+        strategy = strategy_map.get(validated_strategy, SearchStrategy.HYBRID)
 
         # Perform search
         results = await app_ctx.search_engine.search(
-            query=request.query,
+            query=validated_query,
             strategy=strategy,
-            limit=request.limit,
-            min_confidence=request.min_confidence,
+            limit=validated_limit,
+            min_confidence=validated_confidence,
             include_cross_refs=request.include_cross_refs
         )
 
@@ -509,12 +548,33 @@ async def classify_batch(
 
     Useful for processing lists of businesses efficiently.
     Returns the best matching NAICS code for each description.
+
+    Constraints:
+    - Maximum 100 descriptions per batch
+    - Each description must be 10-5000 characters
     """
     app_ctx: AppContext = ctx.request_context.lifespan_context
 
+    # Validate batch
+    try:
+        batch_result = validate_batch_descriptions(request.descriptions)
+        validated_descriptions = batch_result.value
+    except ValidationError as e:
+        logger.warning("Batch validation failed", data={
+            "error": e.message,
+            "field": e.details.get("field")
+        })
+        return {
+            "error": e.message,
+            "error_category": "validation",
+            "classifications": [],
+            "total_processed": 0,
+            "successfully_classified": 0
+        }
+
     classifications = []
 
-    for description in request.descriptions:
+    for description in validated_descriptions:
         try:
             results = await app_ctx.search_engine.search(
                 query=description,
@@ -727,16 +787,31 @@ async def classify_business(
     request_id = generate_request_id()
     set_request_context(request_id=request_id, tool_name="classify_business")
 
+    # Validate input
+    try:
+        desc_result = validate_description(request.description)
+        validated_description = desc_result.value
+    except ValidationError as e:
+        logger.warning("Classification validation failed", data={
+            "error": e.message,
+            "field": e.details.get("field")
+        })
+        return {
+            "input": request.description[:100] if request.description else None,
+            "error": e.message,
+            "error_category": "validation"
+        }
+
     logger.info("Classification requested", data={
-        "description_length": len(request.description),
-        "description_preview": sanitize_text(request.description, 50),
+        "description_length": len(validated_description),
+        "description_preview": sanitize_text(validated_description, 50),
         "check_cross_refs": request.check_cross_refs
     })
 
     try:
         # Perform comprehensive search
         results = await app_ctx.search_engine.search(
-            query=request.description,
+            query=validated_description,
             strategy=SearchStrategy.HYBRID,
             limit=5,
             min_confidence=0.2,
@@ -1192,13 +1267,33 @@ async def compare_codes(
 
     Useful for understanding the differences between similar codes
     when making a classification decision.
+
+    Constraints:
+    - Maximum 20 codes can be compared at once
+    - Each code must be 2-6 digits
     """
     app_ctx: AppContext = ctx.request_context.lifespan_context
+
+    # Validate codes
+    try:
+        codes_result = validate_batch_codes(codes)
+        validated_codes = codes_result.value
+    except ValidationError as e:
+        logger.warning("Code comparison validation failed", data={
+            "error": e.message,
+            "field": e.details.get("field")
+        })
+        return {
+            "error": e.message,
+            "error_category": "validation",
+            "codes_compared": [],
+            "comparisons": []
+        }
 
     try:
         comparisons = []
 
-        for code_str in codes:
+        for code_str in validated_codes:
             code = await app_ctx.database.get_by_code(code_str)
             if code:
                 cross_refs = await app_ctx.database.get_cross_references(code_str)

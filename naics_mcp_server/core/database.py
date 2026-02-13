@@ -415,6 +415,62 @@ class NAICSDatabase:
             logger.error(f"Failed to get cross-refs for {source_code}: {e}")
             return []
 
+    async def get_cross_references_batch(
+        self, source_codes: list[str]
+    ) -> dict[str, list[CrossReference]]:
+        """
+        Get cross-references for multiple NAICS codes in a single query.
+
+        This is much more efficient than calling get_cross_references() in a loop
+        (avoids N+1 query pattern).
+
+        Args:
+            source_codes: List of NAICS codes to get cross-refs for
+
+        Returns:
+            Dict mapping source_code to list of CrossReference objects
+        """
+        if not source_codes:
+            return {}
+
+        self._ensure_connected()
+
+        try:
+            # Build parameterized query with placeholders
+            placeholders = ", ".join("?" * len(source_codes))
+            query = f"""
+                SELECT ref_id, source_code, reference_type, reference_text,
+                       target_code, excluded_activity
+                FROM naics_cross_references
+                WHERE source_code IN ({placeholders})
+                ORDER BY source_code, reference_type, ref_id
+            """
+
+            results = self.connection.execute(query, source_codes).fetchall()
+
+            # Group results by source_code
+            cross_refs_by_code: dict[str, list[CrossReference]] = {
+                code: [] for code in source_codes
+            }
+            for row in results:
+                source = row[1]
+                if source in cross_refs_by_code:
+                    cross_refs_by_code[source].append(
+                        CrossReference(
+                            source_code=source,
+                            reference_type=row[2],
+                            reference_text=row[3],
+                            target_code=row[4],
+                            excluded_activity=row[5],
+                        )
+                    )
+
+            return cross_refs_by_code
+
+        except Exception as e:
+            logger.error(f"Failed to batch get cross-refs: {e}")
+            return {code: [] for code in source_codes}
+
     async def search_cross_references(
         self, search_text: str, limit: int = 20
     ) -> list[CrossReference]:
@@ -627,7 +683,7 @@ class NAICSDatabase:
         try:
             stats = {}
 
-            # Total counts by level
+            # Query 1: Get counts by level (needs GROUP BY)
             counts = self.connection.execute("""
                 SELECT level, COUNT(*) as count
                 FROM naics_nodes
@@ -644,45 +700,27 @@ class NAICSDatabase:
 
             stats["counts_by_level"] = {level: count for level, count in counts}
 
-            # Total records
-            total = self.connection.execute("SELECT COUNT(*) FROM naics_nodes").fetchone()[0]
+            # Query 2: Get all aggregate counts in a single query using subqueries
+            # This consolidates 4 separate COUNT queries into 1
+            aggregate_counts = self.connection.execute("""
+                SELECT
+                    (SELECT COUNT(*) FROM naics_nodes) as total_codes,
+                    (SELECT COUNT(*) FROM naics_index_terms) as total_index_terms,
+                    (SELECT COUNT(*) FROM naics_cross_references) as total_cross_references,
+                    (SELECT COUNT(*) FROM naics_embeddings) as total_embeddings
+            """).fetchone()
+
+            total = aggregate_counts[0]
             stats["total_codes"] = total
+            stats["total_index_terms"] = aggregate_counts[1] or 0
+            stats["total_cross_references"] = aggregate_counts[2] or 0
 
-            # Index terms count
-            try:
-                index_count = self.connection.execute(
-                    "SELECT COUNT(*) FROM naics_index_terms"
-                ).fetchone()[0]
-                stats["total_index_terms"] = index_count
-            except Exception:
-                stats["total_index_terms"] = 0
-
-            # Cross-references count
-            try:
-                crossref_count = self.connection.execute(
-                    "SELECT COUNT(*) FROM naics_cross_references"
-                ).fetchone()[0]
-                stats["total_cross_references"] = crossref_count
-            except Exception:
-                stats["total_cross_references"] = 0
-
-            # Check embedding coverage
-            try:
-                with_embeddings = self.connection.execute("""
-                    SELECT COUNT(*) FROM naics_embeddings
-                """).fetchone()[0]
-
-                stats["embedding_coverage"] = {
-                    "with_embeddings": with_embeddings,
-                    "without_embeddings": total - with_embeddings,
-                    "coverage_percent": (with_embeddings / total * 100) if total > 0 else 0,
-                }
-            except Exception:
-                stats["embedding_coverage"] = {
-                    "with_embeddings": 0,
-                    "without_embeddings": total,
-                    "coverage_percent": 0,
-                }
+            with_embeddings = aggregate_counts[3] or 0
+            stats["embedding_coverage"] = {
+                "with_embeddings": with_embeddings,
+                "without_embeddings": total - with_embeddings,
+                "coverage_percent": (with_embeddings / total * 100) if total > 0 else 0,
+            }
 
             return stats
 

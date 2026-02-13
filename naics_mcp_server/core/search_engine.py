@@ -173,7 +173,9 @@ class ConfidenceCalculator:
 
 class SearchCache:
     """
-    Simple in-memory cache for search results.
+    LRU cache for search results with TTL support.
+
+    Uses OrderedDict for O(1) LRU eviction instead of O(n) min() scan.
     """
 
     def __init__(self, maxsize: int = 100, ttl_seconds: int = 3600):
@@ -184,9 +186,11 @@ class SearchCache:
             maxsize: Maximum number of cached queries
             ttl_seconds: Time to live for cached results (default 1 hour)
         """
+        from collections import OrderedDict
+
         self.maxsize = maxsize
         self.ttl = ttl_seconds
-        self.cache = {}
+        self.cache: OrderedDict[str, tuple[SearchResults, float]] = OrderedDict()
         self.hits = 0
         self.misses = 0
 
@@ -206,9 +210,12 @@ class SearchCache:
             if time.time() - timestamp < self.ttl:
                 self.hits += 1
                 record_cache_hit("search")
+                # Move to end (most recently used) - O(1) operation
+                self.cache.move_to_end(key)
                 logger.debug(f"Cache hit for query: {query[:50]}...")
                 return result
             else:
+                # Expired - remove it
                 del self.cache[key]
 
         self.misses += 1
@@ -218,12 +225,19 @@ class SearchCache:
     def put(
         self, query: str, strategy: str, limit: int, min_confidence: float, results: SearchResults
     ) -> None:
-        """Store search results in cache."""
-        if len(self.cache) >= self.maxsize:
-            oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
-            del self.cache[oldest_key]
-
+        """Store search results in cache with LRU eviction."""
         key = self._get_cache_key(query, strategy, limit, min_confidence)
+
+        # If key exists, update and move to end
+        if key in self.cache:
+            self.cache[key] = (results, time.time())
+            self.cache.move_to_end(key)
+            return
+
+        # Evict oldest (first item) if at capacity - O(1) operation
+        while len(self.cache) >= self.maxsize:
+            self.cache.popitem(last=False)
+
         self.cache[key] = (results, time.time())
 
     def get_stats(self) -> dict[str, Any]:
@@ -526,24 +540,36 @@ class NAICSSearchEngine:
                 logger.error(f"Fallback search also failed: {fallback_error}")
                 matches = []
 
-        # Enhance matches with index term info
+        # Pre-build index term lookup map for O(1) access (instead of O(n*m) linear scan)
+        index_term_map: dict[str, list[IndexTerm]] = {}
+        for it in index_term_matches:
+            if it.naics_code not in index_term_map:
+                index_term_map[it.naics_code] = []
+            index_term_map[it.naics_code].append(it)
+
+        # Enhance matches with index term info using pre-built map
         for match in matches:
-            if match.code.node_code in index_term_codes:
-                relevant_terms = [
-                    it for it in index_term_matches if it.naics_code == match.code.node_code
-                ]
+            relevant_terms = index_term_map.get(match.code.node_code, [])
+            if relevant_terms:
                 match.matched_index_terms = [it.index_term for it in relevant_terms[:3]]
                 # Boost confidence for index term matches
                 match.confidence.index_term = min(1.0, len(relevant_terms) * 0.3)
 
-        # Check cross-references if enabled
+        # Check cross-references if enabled (batch lookup for efficiency)
         cross_refs_checked = 0
         total_exclusions_found = 0
         if include_cross_refs and self.config.enable_cross_references:
-            for match in matches[:20]:  # Only check top 20
-                exclusions = await self.cross_ref_service.check_exclusions(
-                    query, match.code.node_code
-                )
+            # Get codes to check (top 20 matches)
+            codes_to_check = [match.code.node_code for match in matches[:20]]
+
+            # Batch fetch all exclusions in one query (avoids N+1 pattern)
+            all_exclusions = await self.cross_ref_service.check_exclusions_batch(
+                query, codes_to_check
+            )
+
+            # Apply exclusions to matches
+            for match in matches[:20]:
+                exclusions = all_exclusions.get(match.code.node_code, [])
                 if exclusions:
                     match.exclusion_warnings = [e["warning"] for e in exclusions]
                     match.relevant_cross_refs = [
@@ -558,6 +584,7 @@ class NAICSSearchEngine:
                     ]
                     total_exclusions_found += len(exclusions)
                 cross_refs_checked += 1
+
             # Record cross-reference metrics
             record_crossref_lookup(total_exclusions_found)
 
@@ -694,9 +721,16 @@ class NAICSSearchEngine:
     ) -> list[NAICSMatch]:
         """
         Perform hybrid search combining semantic and lexical.
+
+        Runs both search strategies in parallel for better performance.
         """
-        semantic_matches = await self._semantic_search(query, expanded_terms)
-        lexical_matches = await self._lexical_search(query, expanded_terms)
+        import asyncio
+
+        # Run semantic and lexical searches in parallel
+        semantic_matches, lexical_matches = await asyncio.gather(
+            self._semantic_search(query, expanded_terms),
+            self._lexical_search(query, expanded_terms),
+        )
 
         # Combine results
         combined = {}

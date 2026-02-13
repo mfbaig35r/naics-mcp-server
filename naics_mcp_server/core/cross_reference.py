@@ -184,6 +184,58 @@ class CrossReferenceService:
 
         return matches
 
+    async def check_exclusions_batch(
+        self, query: str, naics_codes: list[str]
+    ) -> dict[str, list[dict[str, str]]]:
+        """
+        Check exclusions for multiple NAICS codes in a single batch operation.
+
+        This is much more efficient than calling check_exclusions() in a loop
+        (avoids N+1 query pattern).
+
+        Args:
+            query: The search query or business description
+            naics_codes: List of NAICS codes to check
+
+        Returns:
+            Dict mapping naics_code to list of matching exclusions
+        """
+        if not naics_codes:
+            return {}
+
+        # Batch fetch all cross-references in one query
+        all_cross_refs = await self.database.get_cross_references_batch(naics_codes)
+
+        query_lower = query.lower()
+        query_words = set(query_lower.split())
+
+        results: dict[str, list[dict[str, str]]] = {}
+        for naics_code in naics_codes:
+            cross_refs = all_cross_refs.get(naics_code, [])
+            matches = []
+
+            for cr in cross_refs:
+                if cr.reference_type == "excludes" and cr.excluded_activity:
+                    # Check if query matches the excluded activity
+                    excluded_words = set(cr.excluded_activity.lower().split())
+
+                    # Calculate word overlap using pre-computed query_words
+                    overlap = excluded_words & query_words
+                    if len(overlap) >= 2 or any(
+                        word in query_lower for word in excluded_words if len(word) > 5
+                    ):
+                        matches.append(
+                            {
+                                "excluded_activity": cr.excluded_activity,
+                                "target_code": cr.target_code,
+                                "warning": f"This activity may be better classified under {cr.target_code}",
+                            }
+                        )
+
+            results[naics_code] = matches
+
+        return results
+
     async def find_correct_classification(
         self, activity_description: str, limit: int = 5
     ) -> list[dict[str, str]]:

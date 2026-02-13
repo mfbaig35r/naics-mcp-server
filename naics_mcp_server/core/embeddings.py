@@ -210,9 +210,10 @@ class TextEmbedder:
 
 class EmbeddingCache:
     """
-    Manages cached embeddings for efficient retrieval.
+    LRU cache for embeddings with O(1) eviction.
 
-    This avoids recomputing embeddings for the same text.
+    Uses OrderedDict to maintain access order for efficient LRU eviction.
+    This avoids recomputing embeddings for frequently accessed text.
     """
 
     def __init__(self, max_size: int = 10000):
@@ -222,7 +223,9 @@ class EmbeddingCache:
         Args:
             max_size: Maximum number of embeddings to cache
         """
-        self.cache: dict[str, np.ndarray] = {}
+        from collections import OrderedDict
+
+        self.cache: OrderedDict[str, np.ndarray] = OrderedDict()
         self.max_size = max_size
         self.hits = 0
         self.misses = 0
@@ -237,26 +240,32 @@ class EmbeddingCache:
         Returns:
             Cached embedding or None
         """
-        embedding = self.cache.get(text)
-        if embedding is not None:
+        if text in self.cache:
             self.hits += 1
-        else:
-            self.misses += 1
-        return embedding
+            # Move to end (most recently used) - O(1) operation
+            self.cache.move_to_end(text)
+            return self.cache[text]
+
+        self.misses += 1
+        return None
 
     def put(self, text: str, embedding: np.ndarray) -> None:
         """
-        Store embedding in cache.
+        Store embedding in cache with LRU eviction.
 
         Args:
             text: Text that was embedded
             embedding: The embedding vector
         """
-        # Simple FIFO eviction if cache is full
-        if len(self.cache) >= self.max_size:
-            # Remove oldest entry
-            oldest = next(iter(self.cache))
-            del self.cache[oldest]
+        # If key exists, update and move to end
+        if text in self.cache:
+            self.cache[text] = embedding
+            self.cache.move_to_end(text)
+            return
+
+        # Evict oldest (first item) if at capacity - O(1) operation
+        while len(self.cache) >= self.max_size:
+            self.cache.popitem(last=False)
 
         self.cache[text] = embedding
 

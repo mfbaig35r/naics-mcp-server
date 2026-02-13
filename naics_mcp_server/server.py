@@ -37,6 +37,7 @@ from .core.errors import (
     NAICSException, DatabaseError, NotFoundError, ValidationError,
     SearchError, handle_tool_error
 )
+from .core.health import HealthChecker, HealthStatus
 from .core.validation import (
     validate_description,
     validate_naics_code,
@@ -72,7 +73,8 @@ class AppContext:
         search_engine: NAICSSearchEngine,
         audit_log: SearchAuditLog,
         cross_ref_service: CrossReferenceService,
-        classification_workbook: ClassificationWorkbook
+        classification_workbook: ClassificationWorkbook,
+        health_checker: HealthChecker
     ):
         self.database = database
         self.embedder = embedder
@@ -80,6 +82,7 @@ class AppContext:
         self.audit_log = audit_log
         self.cross_ref_service = cross_ref_service
         self.classification_workbook = classification_workbook
+        self.health_checker = health_checker
 
 
 # Request/Response models
@@ -212,10 +215,18 @@ async def lifespan(server: FastMCP):
         enable_file_logging=search_config.enable_audit_log
     )
 
+    # Create health checker
+    health_checker = HealthChecker(
+        database=database,
+        embedder=embedder,
+        search_engine=search_engine,
+        version=server_config.version
+    )
+
     # Create application context
     app_context = AppContext(
         database, embedder, search_engine, audit_log,
-        cross_ref_service, classification_workbook
+        cross_ref_service, classification_workbook, health_checker
     )
 
     # Log server ready with stats
@@ -1684,7 +1695,7 @@ async def get_workflow_guide() -> Dict[str, Any]:
             "navigation": ["get_code_hierarchy", "get_children", "get_siblings", "get_sector_overview", "find_similar_industries"],
             "validation": ["get_cross_references", "compare_codes", "validate_classification"],
             "documentation": ["get_workbook_template", "write_to_workbook", "search_workbook", "get_workbook_entry"],
-            "diagnostics": ["get_server_health", "get_workflow_guide"]
+            "diagnostics": ["ping", "check_readiness", "get_server_health", "get_workflow_guide"]
         },
         "workbook_linking": {
             "description": "Use parent_entry_id to create traceable analysis chains",
@@ -1706,83 +1717,73 @@ async def get_workflow_guide() -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def get_server_health(ctx: Context) -> Dict[str, Any]:
+async def ping() -> Dict[str, Any]:
     """
-    Check server readiness and data availability.
+    Simple liveness check.
 
-    Call this first if you're getting empty results or errors.
-    Returns status of all critical components:
-    - Database connection and code counts
-    - Embedding model readiness
-    - Cross-reference data availability
-    - Workbook writability
+    Returns immediately to confirm the server process is alive.
+    Use this for quick health checks or Kubernetes liveness probes.
 
-    If any component shows "not_ready", the server may need
-    time to initialize or there may be a configuration issue.
+    For detailed health information, use get_server_health instead.
     """
-    app_ctx: AppContext = ctx.request_context.lifespan_context
-    health = {
-        "status": "healthy",
-        "components": {},
-        "issues": []
+    from datetime import datetime, timezone
+    return {
+        "status": "alive",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
-    # Check database
-    try:
-        stats = await app_ctx.database.get_statistics()
-        total_codes = stats.get("total_codes", 0)
-        health["components"]["database"] = {
-            "status": "ready" if total_codes > 0 else "empty",
-            "total_codes": total_codes,
-            "codes_by_level": stats.get("counts_by_level", {}),
-            "index_terms": stats.get("total_index_terms", 0),
-            "cross_references": stats.get("total_cross_references", 0)
-        }
-        if total_codes == 0:
-            health["issues"].append("Database has no NAICS codes - run ETL notebooks")
-            health["status"] = "degraded"
-    except Exception as e:
-        health["components"]["database"] = {"status": "error", "error": str(e)}
-        health["issues"].append(f"Database error: {e}")
-        health["status"] = "unhealthy"
 
-    # Check embeddings
-    try:
-        embedding_stats = stats.get("embedding_coverage", {})
-        embeddings_ready = app_ctx.search_engine.embeddings_ready
-        coverage = embedding_stats.get("coverage_percent", 0)
-        health["components"]["embeddings"] = {
-            "status": "ready" if embeddings_ready and coverage > 90 else "partial" if coverage > 0 else "not_ready",
-            "coverage_percent": coverage,
-            "model_loaded": app_ctx.embedder.model is not None
-        }
-        if not embeddings_ready:
-            health["issues"].append("Embeddings not fully initialized - semantic search may be limited")
-            if health["status"] == "healthy":
-                health["status"] = "degraded"
-    except Exception as e:
-        health["components"]["embeddings"] = {"status": "error", "error": str(e)}
+@mcp.tool()
+async def check_readiness(ctx: Context) -> Dict[str, Any]:
+    """
+    Check if the server is ready to handle requests.
 
-    # Check cross-references
-    try:
-        xref_count = stats.get("total_cross_references", 0)
-        # Check if excluded_activity is populated
-        sample = app_ctx.database.connection.execute(
-            "SELECT COUNT(*) FROM naics_cross_references WHERE excluded_activity IS NOT NULL"
-        ).fetchone()[0]
-        health["components"]["cross_references"] = {
-            "status": "ready" if xref_count > 0 and sample > 0 else "partial" if xref_count > 0 else "empty",
-            "total": xref_count,
-            "with_excluded_activity": sample
-        }
-        if xref_count == 0:
-            health["issues"].append("No cross-reference data - run 04_load_cross_refs.py")
-    except Exception as e:
-        health["components"]["cross_references"] = {"status": "error", "error": str(e)}
+    Returns ready/not_ready status based on critical components:
+    - Database connection
+    - Embedding model loaded
 
-    # Check workbook
+    Use this for Kubernetes readiness probes or before sending requests.
+    For detailed diagnostics, use get_server_health instead.
+    """
+    app_ctx: AppContext = ctx.request_context.lifespan_context
+
+    is_ready = await app_ctx.health_checker.check_readiness()
+    return {
+        "status": "ready" if is_ready else "not_ready",
+        "uptime_seconds": round(app_ctx.health_checker.uptime_seconds, 1),
+    }
+
+
+@mcp.tool()
+async def get_server_health(ctx: Context) -> Dict[str, Any]:
+    """
+    Comprehensive health check with detailed diagnostics.
+
+    Call this first if you're getting empty results or errors.
+    Returns detailed status of all critical components:
+    - Database: connection, code counts, index terms
+    - Embedder: model loaded, dimension
+    - Search engine: cache stats, embeddings ready
+    - Embeddings: coverage percentage
+    - Cross-references: data availability
+
+    Status levels:
+    - healthy: All components ready
+    - degraded: Some components not fully ready, but functional
+    - unhealthy: Critical components unavailable
+
+    For simple liveness checks, use ping instead.
+    """
+    app_ctx: AppContext = ctx.request_context.lifespan_context
+
+    # Get comprehensive health check
+    result = await app_ctx.health_checker.check_health()
+
+    # Convert to dict and add workbook check (not in core health checker)
+    health = result.to_dict()
+
+    # Add workbook status
     try:
-        # Try to query workbook table
         count = app_ctx.database.connection.execute(
             "SELECT COUNT(*) FROM classification_workbook"
         ).fetchone()[0]
@@ -1791,16 +1792,13 @@ async def get_server_health(ctx: Context) -> Dict[str, Any]:
             "entries": count
         }
     except Exception as e:
-        health["components"]["workbook"] = {"status": "error", "error": str(e)}
+        health["components"]["workbook"] = {
+            "status": "error",
+            "message": str(e)[:100]
+        }
+        if "issues" not in health:
+            health["issues"] = []
         health["issues"].append(f"Workbook not available: {e}")
-
-    # Summary
-    health["summary"] = (
-        f"Database: {health['components'].get('database', {}).get('total_codes', 0):,} codes, "
-        f"{health['components'].get('database', {}).get('index_terms', 0):,} index terms, "
-        f"{health['components'].get('database', {}).get('cross_references', 0):,} cross-refs. "
-        f"Embeddings: {health['components'].get('embeddings', {}).get('coverage_percent', 0):.0f}% coverage."
-    )
 
     return health
 

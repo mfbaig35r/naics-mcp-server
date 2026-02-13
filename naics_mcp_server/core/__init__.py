@@ -43,6 +43,15 @@ from .errors import (
     DATABASE_RETRY,
     EMBEDDING_RETRY,
 )
+from .health import (
+    HealthChecker,
+    HealthCheckResult,
+    HealthStatus,
+    ComponentStatus,
+    ComponentHealth,
+    liveness_check,
+    readiness_check,
+)
 
 __all__ = [
     # Database
@@ -97,4 +106,12 @@ __all__ = [
     "handle_tool_error",
     "DATABASE_RETRY",
     "EMBEDDING_RETRY",
+    # Health
+    "HealthChecker",
+    "HealthCheckResult",
+    "HealthStatus",
+    "ComponentStatus",
+    "ComponentHealth",
+    "liveness_check",
+    "readiness_check",
 ]

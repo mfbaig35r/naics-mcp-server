@@ -19,6 +19,13 @@ Environment Variables:
     NAICS_ENABLE_CROSS_REFERENCES: Enable cross-reference lookup (true/false)
     NAICS_DEBUG: Enable debug mode (true/false)
     DEBUG: Alternative debug flag
+
+    Rate Limiting:
+    NAICS_ENABLE_RATE_LIMITING: Enable rate limiting (true/false)
+    NAICS_DEFAULT_RPM: Default requests per minute (default: 60)
+    NAICS_SEARCH_RPM: RPM for search tools (default: 30)
+    NAICS_CLASSIFY_RPM: RPM for classification tools (default: 20)
+    NAICS_BATCH_RPM: RPM for batch operations (default: 10)
 """
 
 import logging
@@ -238,6 +245,86 @@ class MetricsConfig(BaseSettings):
         }
 
 
+class RateLimitConfig(BaseSettings):
+    """
+    Configuration for rate limiting.
+
+    Uses token bucket algorithm with per-tool limits.
+    Environment variables use the NAICS_ prefix.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="NAICS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # Enable/disable rate limiting
+    enable_rate_limiting: bool = Field(
+        default=False, description="Enable rate limiting for tools"
+    )
+
+    # Global defaults (requests per minute)
+    default_rpm: int = Field(
+        default=60, ge=1, le=1000, description="Default requests per minute for all tools"
+    )
+    burst_multiplier: float = Field(
+        default=2.0, ge=1.0, le=10.0, description="Burst allowance multiplier over base rate"
+    )
+
+    # Per-category limits (requests per minute)
+    # High-impact tools (CPU-intensive search/classification)
+    search_rpm: int = Field(
+        default=30, ge=1, le=500, description="RPM for search tools (search_naics_codes, etc.)"
+    )
+    classify_rpm: int = Field(
+        default=20, ge=1, le=500, description="RPM for classification tools"
+    )
+    batch_rpm: int = Field(
+        default=10, ge=1, le=100, description="RPM for batch operations (classify_batch)"
+    )
+
+    # Medium-impact tools
+    hierarchy_rpm: int = Field(
+        default=60, ge=1, le=500, description="RPM for hierarchy navigation tools"
+    )
+    analytics_rpm: int = Field(
+        default=30, ge=1, le=500, description="RPM for analytics tools"
+    )
+
+    # Low-impact tools (health checks, workbook)
+    health_rpm: int = Field(
+        default=120, ge=1, le=1000, description="RPM for health check tools"
+    )
+    workbook_rpm: int = Field(
+        default=60, ge=1, le=500, description="RPM for workbook tools"
+    )
+
+    # Behavior settings
+    include_retry_after: bool = Field(
+        default=True, description="Include Retry-After hint in rate limit errors"
+    )
+    log_rate_limit_hits: bool = Field(
+        default=True, description="Log when rate limits are hit"
+    )
+
+    def to_dict(self) -> dict:
+        """Convert config to dictionary for logging/debugging."""
+        return {
+            "enable_rate_limiting": self.enable_rate_limiting,
+            "default_rpm": self.default_rpm,
+            "burst_multiplier": self.burst_multiplier,
+            "search_rpm": self.search_rpm,
+            "classify_rpm": self.classify_rpm,
+            "batch_rpm": self.batch_rpm,
+            "hierarchy_rpm": self.hierarchy_rpm,
+            "analytics_rpm": self.analytics_rpm,
+            "health_rpm": self.health_rpm,
+            "workbook_rpm": self.workbook_rpm,
+        }
+
+
 class ServerConfig(BaseSettings):
     """
     Configuration for the MCP server itself.
@@ -304,6 +391,7 @@ class AppConfig(BaseModel):
     search: SearchConfig = Field(default_factory=SearchConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
 
     def validate_startup(self) -> list[str]:
         """
@@ -349,6 +437,7 @@ class AppConfig(BaseModel):
             "search": self.search.to_dict(),
             "server": self.server.to_dict(),
             "metrics": self.metrics.to_dict(),
+            "rate_limit": self.rate_limit.to_dict(),
         }
 
 
@@ -403,6 +492,11 @@ def get_server_config() -> ServerConfig:
 def get_metrics_config() -> MetricsConfig:
     """Get metrics configuration (convenience function)."""
     return get_config().metrics
+
+
+def get_rate_limit_config() -> RateLimitConfig:
+    """Get rate limit configuration (convenience function)."""
+    return get_config().rate_limit
 
 
 # Backwards compatibility - these are deprecated but maintained for existing code

@@ -251,6 +251,42 @@ class SearchError(NAICSException):
         )
 
 
+class RateLimitError(NAICSException):
+    """
+    Rate limit exceeded error.
+
+    Includes retry_after hint for clients to wait before retrying.
+    """
+
+    def __init__(
+        self,
+        tool_name: str,
+        category: str,
+        retry_after: float,
+        message: str | None = None,
+    ):
+        msg = message or f"Rate limit exceeded for {tool_name}"
+        details = {
+            "tool_name": tool_name,
+            "rate_limit_category": category,
+            "retry_after_seconds": round(retry_after, 1),
+        }
+
+        super().__init__(
+            message=msg,
+            category=ErrorCategory.TRANSIENT,
+            retryable=True,
+            details=details,
+        )
+        self.retry_after = retry_after
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary with retry_after header hint."""
+        result = super().to_dict()
+        result["retry_after"] = self.retry_after
+        return result
+
+
 # --- Retry Configuration ---
 
 

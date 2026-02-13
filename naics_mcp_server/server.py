@@ -16,12 +16,12 @@ from typing import Any
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import BaseModel, Field
 
-from .config import SearchConfig, ServerConfig
+from .config import SearchConfig, ServerConfig, get_rate_limit_config
 from .core.classification_workbook import ClassificationWorkbook, FormType
 from .core.cross_reference import CrossReferenceService
 from .core.database import NAICSDatabase
 from .core.embeddings import TextEmbedder
-from .core.errors import NAICSException, ValidationError, handle_tool_error
+from .core.errors import NAICSException, RateLimitError, ValidationError, handle_tool_error
 from .core.health import HealthChecker
 from .core.search_engine import NAICSSearchEngine, generate_search_guidance
 from .core.validation import (
@@ -53,6 +53,7 @@ from .observability.metrics import (
     update_data_stats,
     update_health_status,
 )
+from .observability.rate_limiting import RateLimiter
 from .tools.workbook_tools import (
     WorkbookSearchRequest,
     WorkbookTemplateRequest,
@@ -81,6 +82,7 @@ class AppContext:
         cross_ref_service: CrossReferenceService,
         classification_workbook: ClassificationWorkbook,
         health_checker: HealthChecker,
+        rate_limiter: RateLimiter | None = None,
     ):
         self.database = database
         self.embedder = embedder
@@ -89,6 +91,7 @@ class AppContext:
         self.cross_ref_service = cross_ref_service
         self.classification_workbook = classification_workbook
         self.health_checker = health_checker
+        self.rate_limiter = rate_limiter
 
 
 # Request/Response models
@@ -229,6 +232,19 @@ async def lifespan(server: FastMCP):
         version=server_config.version,
     )
 
+    # Initialize rate limiter
+    rate_limit_config = get_rate_limit_config()
+    rate_limiter = RateLimiter(rate_limit_config) if rate_limit_config.enable_rate_limiting else None
+    if rate_limiter:
+        logger.info(
+            "Rate limiting enabled",
+            data={
+                "default_rpm": rate_limit_config.default_rpm,
+                "search_rpm": rate_limit_config.search_rpm,
+                "classify_rpm": rate_limit_config.classify_rpm,
+            },
+        )
+
     # Create application context
     app_context = AppContext(
         database,
@@ -238,6 +254,7 @@ async def lifespan(server: FastMCP):
         cross_ref_service,
         classification_workbook,
         health_checker,
+        rate_limiter,
     )
 
     # Log server ready with stats
@@ -335,6 +352,31 @@ mcp.description = (
 )
 
 
+async def check_rate_limit(ctx: Context, tool_name: str) -> None:
+    """
+    Check rate limit for a tool invocation.
+
+    Raises RateLimitError if limit is exceeded.
+    Does nothing if rate limiting is disabled or not configured.
+
+    Args:
+        ctx: MCP Context with request context
+        tool_name: Name of the tool being invoked
+    """
+    app_ctx: AppContext = ctx.request_context.lifespan_context
+    if app_ctx.rate_limiter is None:
+        return
+
+    result = await app_ctx.rate_limiter.check_limit(tool_name)
+    if not result.allowed:
+        raise RateLimitError(
+            tool_name=tool_name,
+            category=result.category.value,
+            retry_after=result.retry_after_seconds,
+            message=result.message,
+        )
+
+
 # === Search Tools (4) ===
 
 
@@ -365,6 +407,9 @@ async def search_naics_codes(request: SearchRequest, ctx: Context) -> SearchResp
     - Index term matches show alignment with official NAICS terminology
     """
     app_ctx: AppContext = ctx.request_context.lifespan_context
+
+    # Check rate limit
+    await check_rate_limit(ctx, "search_naics_codes")
 
     # Validate inputs
     try:
@@ -496,6 +541,9 @@ async def search_index_terms(
     """
     app_ctx: AppContext = ctx.request_context.lifespan_context
 
+    # Check rate limit
+    await check_rate_limit(ctx, "search_index_terms")
+
     try:
         terms = await app_ctx.database.search_index_terms(search_text, limit=limit)
 
@@ -526,6 +574,9 @@ async def find_similar_industries(request: SimilarityRequest, ctx: Context) -> d
     Uses semantic similarity based on code descriptions.
     """
     app_ctx: AppContext = ctx.request_context.lifespan_context
+
+    # Check rate limit
+    await check_rate_limit(ctx, "find_similar_industries")
 
     try:
         code = await app_ctx.database.get_by_code(request.naics_code)
@@ -586,6 +637,9 @@ async def classify_batch(request: BatchClassifyRequest, ctx: Context) -> dict[st
     - Each description must be 10-5000 characters
     """
     app_ctx: AppContext = ctx.request_context.lifespan_context
+
+    # Check rate limit (batch operations have stricter limits)
+    await check_rate_limit(ctx, "classify_batch")
 
     # Validate batch
     try:
@@ -780,6 +834,9 @@ async def classify_business(request: ClassifyRequest, ctx: Context) -> dict[str,
     Returns the recommended classification with alternatives and reasoning.
     """
     app_ctx: AppContext = ctx.request_context.lifespan_context
+
+    # Check rate limit
+    await check_rate_limit(ctx, "classify_business")
 
     # Set request context for logging
     request_id = generate_request_id()
@@ -1829,6 +1886,10 @@ async def get_statistics(ctx: Context) -> dict[str, Any]:
     if app_ctx.audit_log:
         patterns = await app_ctx.audit_log.analyze_patterns(timeframe_hours=24)
         stats["recent_searches"] = patterns
+
+    # Add rate limiting status if enabled
+    if app_ctx.rate_limiter:
+        stats["rate_limiting"] = await app_ctx.rate_limiter.get_status()
 
     return stats
 

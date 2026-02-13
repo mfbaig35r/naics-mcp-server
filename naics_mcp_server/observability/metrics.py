@@ -169,6 +169,25 @@ CROSSREF_EXCLUSIONS_FOUND = Counter(
     "Number of exclusion warnings found",
 )
 
+# Rate limiting metrics
+RATE_LIMIT_REQUESTS = Counter(
+    "naics_rate_limit_requests_total",
+    "Rate limit check requests",
+    ["category", "result"],  # result: allowed, denied
+)
+
+RATE_LIMIT_REMAINING = Gauge(
+    "naics_rate_limit_tokens_remaining",
+    "Remaining tokens in rate limit bucket",
+    ["category"],
+)
+
+RATE_LIMIT_UTILIZATION = Gauge(
+    "naics_rate_limit_utilization_percent",
+    "Rate limit bucket utilization (0-100)",
+    ["category"],
+)
+
 # Health metrics
 HEALTH_STATUS = Gauge(
     "naics_health_status",
@@ -443,6 +462,18 @@ def update_db_connections(count: int):
 def record_embedding_batch(batch_size: int):
     """Record embedding batch size."""
     EMBEDDING_BATCH_SIZE.observe(batch_size)
+
+
+def record_rate_limit_check(category: str, allowed: bool):
+    """Record a rate limit check result."""
+    result = "allowed" if allowed else "denied"
+    RATE_LIMIT_REQUESTS.labels(category=category, result=result).inc()
+
+
+def update_rate_limit_stats(category: str, tokens_remaining: float, utilization_percent: float):
+    """Update rate limit bucket statistics."""
+    RATE_LIMIT_REMAINING.labels(category=category).set(tokens_remaining)
+    RATE_LIMIT_UTILIZATION.labels(category=category).set(utilization_percent)
 
 
 # --- Metrics Export ---

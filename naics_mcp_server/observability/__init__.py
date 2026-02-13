@@ -28,6 +28,7 @@ from .metrics import (
     record_crossref_lookup,
     record_db_connection_error,
     record_embedding_batch,
+    record_rate_limit_check,
     record_search_fallback,
     record_search_metrics,
     reset_metrics,
@@ -38,6 +39,21 @@ from .metrics import (
     update_data_stats,
     update_db_connections,
     update_health_status,
+    update_rate_limit_stats,
+)
+from .rate_limiting import (
+    RateLimiter,
+    RateLimitResult,
+    TokenBucket,
+    ToolCategory,
+    rate_limited,
+    search_rate_limited,
+    classify_rate_limited,
+    batch_rate_limited,
+    hierarchy_rate_limited,
+    analytics_rate_limited,
+    health_rate_limited,
+    workbook_rate_limited,
 )
 
 __all__ = [
@@ -78,4 +94,19 @@ __all__ = [
     "record_db_connection_error",
     "update_db_connections",
     "record_embedding_batch",
+    "record_rate_limit_check",
+    "update_rate_limit_stats",
+    # Rate Limiting
+    "RateLimiter",
+    "RateLimitResult",
+    "TokenBucket",
+    "ToolCategory",
+    "rate_limited",
+    "search_rate_limited",
+    "classify_rate_limited",
+    "batch_rate_limited",
+    "hierarchy_rate_limited",
+    "analytics_rate_limited",
+    "health_rate_limited",
+    "workbook_rate_limited",
 ]

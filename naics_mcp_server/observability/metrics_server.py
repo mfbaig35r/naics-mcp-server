@@ -12,8 +12,7 @@ Usage:
 
 import argparse
 import logging
-import sys
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 from .metrics import get_metrics

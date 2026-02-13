@@ -17,7 +17,6 @@ from typing import Any, TypeVar
 
 from prometheus_client import (
     REGISTRY,
-    CollectorRegistry,
     Counter,
     Gauge,
     Histogram,

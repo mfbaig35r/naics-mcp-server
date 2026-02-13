@@ -161,7 +161,7 @@ class RequestTracker:
         try:
             await asyncio.wait_for(self._drained_event.wait(), timeout=timeout)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
 
@@ -358,9 +358,7 @@ class ShutdownManager:
                     )
                     forced = True
                 else:
-                    logger.warning(
-                        f"Drain timeout reached, {remaining} requests still pending"
-                    )
+                    logger.warning(f"Drain timeout reached, {remaining} requests still pending")
 
             requests_drained = in_flight - await self._request_tracker.get_count()
 
@@ -380,7 +378,7 @@ class ShutdownManager:
                     hooks_executed.append(hook.name)
                     logger.debug(f"Hook completed: {hook.name}")
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.error(f"Hook timed out: {hook.name}")
                     hooks_failed.append(hook.name)
                 except Exception as e:

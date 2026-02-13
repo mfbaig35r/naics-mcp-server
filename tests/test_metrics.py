@@ -2,8 +2,6 @@
 Tests for Prometheus metrics module.
 """
 
-import pytest
-
 from naics_mcp_server.observability.metrics import (
     Timer,
     get_metrics_text,

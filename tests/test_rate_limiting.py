@@ -9,11 +9,11 @@ import pytest
 from naics_mcp_server.config import RateLimitConfig
 from naics_mcp_server.core.errors import RateLimitError
 from naics_mcp_server.observability.rate_limiting import (
+    TOOL_CATEGORIES,
     RateLimiter,
     RateLimitResult,
     TokenBucket,
     ToolCategory,
-    TOOL_CATEGORIES,
 )
 
 

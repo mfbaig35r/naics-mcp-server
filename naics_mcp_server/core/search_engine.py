@@ -22,13 +22,6 @@ from ..core.database import NAICSDatabase
 from ..core.embeddings import EmbeddingCache, TextEmbedder
 from ..core.errors import DatabaseError, EmbeddingError
 from ..core.query_expansion import QueryExpander, SmartQueryParser
-from ..observability.metrics import (
-    record_cache_hit,
-    record_cache_miss,
-    record_crossref_lookup,
-    record_search_fallback,
-    update_cache_stats,
-)
 from ..models.naics_models import CrossReference, IndexTerm, NAICSCode, NAICSLevel
 from ..models.search_models import (
     ConfidenceScore,
@@ -37,6 +30,12 @@ from ..models.search_models import (
     QueryTerms,
     SearchResults,
     SearchStrategy,
+)
+from ..observability.metrics import (
+    record_cache_hit,
+    record_cache_miss,
+    record_crossref_lookup,
+    record_search_fallback,
 )
 
 logger = logging.getLogger(__name__)

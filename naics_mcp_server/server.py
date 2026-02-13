@@ -16,7 +16,13 @@ from typing import Any
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import BaseModel, Field
 
-from .config import SearchConfig, ServerConfig, get_rate_limit_config, get_shutdown_config
+from .config import (
+    SearchConfig,
+    ServerConfig,
+    get_metrics_config,
+    get_rate_limit_config,
+    get_shutdown_config,
+)
 from .core.classification_workbook import ClassificationWorkbook, FormType
 from .core.cross_reference import CrossReferenceService
 from .core.database import NAICSDatabase
@@ -35,7 +41,6 @@ from .core.validation import (
     validate_strategy,
 )
 from .models.search_models import SearchStrategy
-from .config import get_metrics_config
 from .observability.audit import SearchAuditLog, SearchEvent
 from .observability.logging import (
     generate_request_id,
@@ -48,7 +53,6 @@ from .observability.logging import (
     setup_logging,
 )
 from .observability.metrics import (
-    Timer,
     initialize_metrics,
     record_search_metrics,
     update_data_stats,
@@ -250,7 +254,9 @@ async def lifespan(server: FastMCP):
 
     # Initialize rate limiter
     rate_limit_config = get_rate_limit_config()
-    rate_limiter = RateLimiter(rate_limit_config) if rate_limit_config.enable_rate_limiting else None
+    rate_limiter = (
+        RateLimiter(rate_limit_config) if rate_limit_config.enable_rate_limiting else None
+    )
     if rate_limiter:
         logger.info(
             "Rate limiting enabled",

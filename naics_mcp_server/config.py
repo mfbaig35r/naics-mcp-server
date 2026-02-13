@@ -347,9 +347,7 @@ class RateLimitConfig(BaseSettings):
     )
 
     # Enable/disable rate limiting
-    enable_rate_limiting: bool = Field(
-        default=False, description="Enable rate limiting for tools"
-    )
+    enable_rate_limiting: bool = Field(default=False, description="Enable rate limiting for tools")
 
     # Global defaults (requests per minute)
     default_rpm: int = Field(
@@ -364,9 +362,7 @@ class RateLimitConfig(BaseSettings):
     search_rpm: int = Field(
         default=30, ge=1, le=500, description="RPM for search tools (search_naics_codes, etc.)"
     )
-    classify_rpm: int = Field(
-        default=20, ge=1, le=500, description="RPM for classification tools"
-    )
+    classify_rpm: int = Field(default=20, ge=1, le=500, description="RPM for classification tools")
     batch_rpm: int = Field(
         default=10, ge=1, le=100, description="RPM for batch operations (classify_batch)"
     )
@@ -375,25 +371,17 @@ class RateLimitConfig(BaseSettings):
     hierarchy_rpm: int = Field(
         default=60, ge=1, le=500, description="RPM for hierarchy navigation tools"
     )
-    analytics_rpm: int = Field(
-        default=30, ge=1, le=500, description="RPM for analytics tools"
-    )
+    analytics_rpm: int = Field(default=30, ge=1, le=500, description="RPM for analytics tools")
 
     # Low-impact tools (health checks, workbook)
-    health_rpm: int = Field(
-        default=120, ge=1, le=1000, description="RPM for health check tools"
-    )
-    workbook_rpm: int = Field(
-        default=60, ge=1, le=500, description="RPM for workbook tools"
-    )
+    health_rpm: int = Field(default=120, ge=1, le=1000, description="RPM for health check tools")
+    workbook_rpm: int = Field(default=60, ge=1, le=500, description="RPM for workbook tools")
 
     # Behavior settings
     include_retry_after: bool = Field(
         default=True, description="Include Retry-After hint in rate limit errors"
     )
-    log_rate_limit_hits: bool = Field(
-        default=True, description="Log when rate limits are hit"
-    )
+    log_rate_limit_hits: bool = Field(default=True, description="Log when rate limits are hit")
 
     def to_dict(self) -> dict:
         """Convert config to dictionary for logging/debugging."""

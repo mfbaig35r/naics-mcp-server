@@ -46,9 +46,9 @@ naics-mcp = "naics_mcp_server.cli:main"
 naics-mcp-server = "naics_mcp_server.server:main"
 
 [project.urls]
-Documentation = "https://github.com/your-org/naics-mcp-server#readme"
-Issues = "https://github.com/your-org/naics-mcp-server/issues"
-Source = "https://github.com/your-org/naics-mcp-server"
+Documentation = "https://github.com/mfbaig35r/naics-mcp-server#readme"
+Issues = "https://github.com/mfbaig35r/naics-mcp-server/issues"
+Source = "https://github.com/mfbaig35r/naics-mcp-server"
 
 [tool.hatch.build.targets.wheel]
 packages = ["naics_mcp_server"]

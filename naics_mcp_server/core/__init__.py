@@ -37,6 +37,7 @@ from .health import (
     readiness_check,
 )
 from .query_expansion import QueryExpander, SmartQueryParser
+from .search_engine import NAICSSearchEngine, generate_search_guidance
 from .shutdown import (
     RequestTracker,
     ShutdownConfig,
@@ -47,7 +48,6 @@ from .shutdown import (
     get_shutdown_manager,
     reset_shutdown_manager,
 )
-from .search_engine import NAICSSearchEngine, generate_search_guidance
 from .validation import (
     ValidationConfig,
     ValidationResult,

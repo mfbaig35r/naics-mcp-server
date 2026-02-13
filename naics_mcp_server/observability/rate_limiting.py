@@ -218,8 +218,7 @@ class RateLimiter:
             )
 
         message = (
-            f"Rate limit exceeded for {category.value} tools. "
-            f"Try again in {wait_time:.1f} seconds."
+            f"Rate limit exceeded for {category.value} tools. Try again in {wait_time:.1f} seconds."
         )
 
         if self.config.log_rate_limit_hits:
@@ -254,7 +253,9 @@ class RateLimiter:
                 "tokens_available": round(current, 2),
                 "capacity": round(capacity, 2),
                 "refill_rate_per_second": round(bucket.refill_rate, 2),
-                "utilization_percent": round((1 - current / capacity) * 100, 1) if capacity > 0 else 0,
+                "utilization_percent": round((1 - current / capacity) * 100, 1)
+                if capacity > 0
+                else 0,
             }
 
         return status

@@ -23,7 +23,7 @@ import traceback
 import uuid
 from collections.abc import Callable
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import wraps
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -251,7 +251,7 @@ class JSONFormatter(logging.Formatter):
 
         # ISO 8601 timestamp with timezone
         if self.include_timestamp:
-            log_data["timestamp"] = datetime.now(timezone.utc).isoformat()
+            log_data["timestamp"] = datetime.now(UTC).isoformat()
 
         # Service metadata for log aggregation
         if self.include_service_info:
@@ -317,12 +317,14 @@ class JSONFormatter(logging.Formatter):
         if exc_tb:
             frames = []
             for frame_info in traceback.extract_tb(exc_tb)[-5:]:  # Last 5 frames
-                frames.append({
-                    "file": self._shorten_path(frame_info.filename),
-                    "line": frame_info.lineno,
-                    "function": frame_info.name,
-                    "code": frame_info.line[:100] if frame_info.line else None,
-                })
+                frames.append(
+                    {
+                        "file": self._shorten_path(frame_info.filename),
+                        "line": frame_info.lineno,
+                        "function": frame_info.name,
+                        "code": frame_info.line[:100] if frame_info.line else None,
+                    }
+                )
             error_data["stack"] = frames
 
         return error_data
@@ -337,12 +339,12 @@ class TextFormatter(logging.Formatter):
 
     # ANSI color codes for terminal output
     COLORS = {
-        "DEBUG": "\033[36m",    # Cyan
-        "INFO": "\033[32m",     # Green
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
         "WARNING": "\033[33m",  # Yellow
-        "ERROR": "\033[31m",    # Red
-        "CRITICAL": "\033[35m", # Magenta
-        "RESET": "\033[0m",     # Reset
+        "ERROR": "\033[31m",  # Red
+        "CRITICAL": "\033[35m",  # Magenta
+        "RESET": "\033[0m",  # Reset
     }
 
     def __init__(self, use_colors: bool = True):
@@ -351,7 +353,7 @@ class TextFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         # Timestamp
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
         # Level with optional color
         level = record.levelname

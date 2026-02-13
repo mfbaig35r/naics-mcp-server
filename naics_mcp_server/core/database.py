@@ -155,10 +155,30 @@ class NAICSDatabase:
                 logger.info("Schema initialized successfully")
             else:
                 logger.info("Database schema already exists")
+                # Run migrations for existing databases
+                self._run_migrations()
 
         except Exception as e:
             logger.error(f"Failed to initialize schema: {e}")
             raise
+
+    def _run_migrations(self) -> None:
+        """Run schema migrations for existing databases."""
+        try:
+            # Migration: Add excluded_activity column to naics_cross_references if missing
+            cols = self.connection.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'naics_cross_references'"
+            ).fetchall()
+            column_names = [c[0] for c in cols]
+
+            if 'excluded_activity' not in column_names:
+                logger.info("Migrating naics_cross_references: adding excluded_activity column")
+                self.connection.execute(
+                    "ALTER TABLE naics_cross_references ADD COLUMN excluded_activity VARCHAR"
+                )
+        except Exception as e:
+            logger.debug(f"Migration note: {e}")
 
     def disconnect(self) -> None:
         """Close database connection cleanly."""

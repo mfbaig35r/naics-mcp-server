@@ -165,8 +165,30 @@ def __(df_xref, re):
         lambda x: x[0] if x else None
     )
 
+    # Extract excluded activity from "excludes" type references
+    # Pattern: "Activity name--are classified in Industry XXXXXX"
+    def extract_excluded_activity(row) -> str:
+        if row["reference_type"] != "excludes":
+            return None
+        text = row["reference_text"]
+        if not isinstance(text, str):
+            return None
+        # Look for text before "--are classified" or "are classified"
+        match = re.search(r'^(.+?)(?:--|—|-)?\s*are classified', text, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        return None
+
+    df_xref["excluded_activity"] = df_xref.apply(extract_excluded_activity, axis=1)
+
     print("Sample parsed references:")
-    df_xref[["source_code", "reference_type", "target_code", "reference_text"]].head(10)
+    df_xref[["source_code", "reference_type", "target_code", "excluded_activity", "reference_text"]].head(10)
+
+    # Stats on excluded_activity extraction
+    has_activity = df_xref["excluded_activity"].notna().sum()
+    excludes_count = (df_xref["reference_type"] == "excludes").sum()
+    print(f"\nExcluded activities extracted: {has_activity}/{excludes_count} excludes refs ({has_activity/excludes_count:.1%})")
+
     return (extract_target_codes,)
 
 
@@ -204,7 +226,8 @@ def __(DB_PATH, duckdb):
             source_code VARCHAR NOT NULL,
             reference_type VARCHAR,
             reference_text TEXT NOT NULL,
-            target_code VARCHAR
+            target_code VARCHAR,
+            excluded_activity VARCHAR
         )
     """)
     return (conn,)
@@ -213,9 +236,9 @@ def __(DB_PATH, duckdb):
 @app.cell
 def __(conn, df_xref):
     # Prepare for insert
-    df_insert = df_xref[["source_code", "reference_type", "reference_text", "target_code"]].copy()
+    df_insert = df_xref[["source_code", "reference_type", "reference_text", "target_code", "excluded_activity"]].copy()
     df_insert["ref_id"] = range(1, len(df_insert) + 1)
-    df_insert = df_insert[["ref_id", "source_code", "reference_type", "reference_text", "target_code"]]
+    df_insert = df_insert[["ref_id", "source_code", "reference_type", "reference_text", "target_code", "excluded_activity"]]
 
     # Convert StringDtype to object for DuckDB compatibility (pandas 3.0)
     for col in df_insert.select_dtypes(include=["string"]).columns:

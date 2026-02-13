@@ -7,7 +7,7 @@ built with clarity and purpose.
 """
 
 import asyncio
-import logging
+import os
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List, Optional
@@ -23,32 +23,27 @@ from .core.classification_workbook import ClassificationWorkbook, FormType
 from .core.cross_reference import CrossReferenceService
 from .models.search_models import SearchStrategy
 from .observability.audit import SearchAuditLog, SearchEvent
+from .observability.logging import (
+    setup_logging,
+    get_logger,
+    set_request_context,
+    generate_request_id,
+    sanitize_text,
+    log_server_start,
+    log_server_ready,
+    log_server_shutdown,
+)
 from .tools.workbook_tools import (
     WorkbookWriteRequest, WorkbookSearchRequest, WorkbookTemplateRequest
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
+# Configure structured logging
+setup_logging(
+    level=os.getenv("NAICS_LOG_LEVEL", "INFO"),
+    format=os.getenv("NAICS_LOG_FORMAT", "text"),  # Use "json" for production
+    log_file=os.getenv("NAICS_LOG_FILE")
 )
-logger = logging.getLogger(__name__)
-
-# Debug mode
-import os
-if os.getenv('DEBUG', '').lower() in ['true', '1', 'yes']:
-    log_file = Path.home() / ".cache" / "naics-mcp-server" / "server.log"
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(
-        logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    )
-    logging.getLogger().addHandler(file_handler)
-    logging.getLogger().setLevel(logging.DEBUG)
-    logger.info(f"Debug mode enabled, logging to {log_file}")
+logger = get_logger(__name__)
 
 
 # Application context for dependency injection
@@ -147,15 +142,21 @@ class BatchClassifyRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     """Manage server lifecycle - initialization and cleanup."""
-    logger.info("Starting NAICS MCP Server...")
-
     # Load configuration
     search_config = SearchConfig.from_env()
     server_config = ServerConfig.from_env()
 
+    # Log startup with config
+    log_server_start({
+        "database_path": str(search_config.database_path),
+        "embedding_model": search_config.embedding_model,
+        "debug": server_config.debug
+    })
+
     # Initialize database
     database = NAICSDatabase(search_config.database_path)
     database.connect()
+    logger.info("Database connected", data={"path": str(search_config.database_path)})
 
     # Initialize embedder
     cache_dir = Path.home() / ".cache" / "naics-mcp-server" / "models"
@@ -166,16 +167,18 @@ async def lifespan(server: FastMCP):
         cache_dir=cache_dir
     )
     embedder.load_model()
+    logger.info("Embedding model loaded", data={"model": search_config.embedding_model})
 
     # Initialize search engine
     search_engine = NAICSSearchEngine(database, embedder, search_config)
 
     # Initialize embeddings if needed
     init_result = await search_engine.initialize_embeddings()
-    if init_result.get('action') in ['created', 'populated']:
-        logger.info(f"First run: Generated {init_result.get('embeddings_generated', 0)} embeddings")
-    else:
-        logger.info(f"Embeddings ready: {init_result}")
+    logger.info("Embeddings initialized", data={
+        "action": init_result.get("action"),
+        "count": init_result.get("embeddings_count") or init_result.get("embeddings_generated"),
+        "time_seconds": init_result.get("time_seconds")
+    })
 
     # Initialize cross-reference service
     cross_ref_service = CrossReferenceService(database)
@@ -200,12 +203,15 @@ async def lifespan(server: FastMCP):
         cross_ref_service, classification_workbook
     )
 
-    logger.info("NAICS MCP Server ready!")
+    # Log server ready with stats
+    stats = await database.get_statistics()
+    stats["embeddings_count"] = init_result.get("embeddings_count") or init_result.get("embeddings_generated", 0)
+    log_server_ready(stats)
 
     try:
         yield app_context
     finally:
-        logger.info("Shutting down NAICS MCP Server...")
+        log_server_shutdown()
         database.disconnect()
         logger.info("Shutdown complete")
 
@@ -365,7 +371,11 @@ async def search_naics_codes(
         search_event.fail(str(e))
         await app_ctx.audit_log.log_search(search_event)
 
-        logger.error(f"Search failed: {e}")
+        logger.error("Search failed", data={
+            "error_type": type(e).__name__,
+            "error_message": str(e)[:200],
+            "query_preview": sanitize_text(request.query, 50)
+        })
         return SearchResponse(
             query=request.query,
             results=[],
@@ -689,6 +699,16 @@ async def classify_business(
     """
     app_ctx: AppContext = ctx.request_context.lifespan_context
 
+    # Set request context for logging
+    request_id = generate_request_id()
+    set_request_context(request_id=request_id, tool_name="classify_business")
+
+    logger.info("Classification requested", data={
+        "description_length": len(request.description),
+        "description_preview": sanitize_text(request.description, 50),
+        "check_cross_refs": request.check_cross_refs
+    })
+
     try:
         # Perform comprehensive search
         results = await app_ctx.search_engine.search(
@@ -814,10 +834,21 @@ async def classify_business(
         if primary.exclusion_warnings:
             response["exclusion_warnings"] = primary.exclusion_warnings
 
+        # Log successful classification
+        logger.info("Classification completed", data={
+            "primary_code": primary.code.node_code,
+            "confidence": primary.confidence.overall,
+            "alternatives_count": len(alternatives),
+            "exclusion_warnings": len(primary.exclusion_warnings) if primary.exclusion_warnings else 0
+        })
+
         return response
 
     except Exception as e:
-        logger.error(f"Classification failed: {e}")
+        logger.error("Classification failed", data={
+            "error_type": type(e).__name__,
+            "error_message": str(e)[:200]
+        })
         return {
             "input": request.description,
             "error": str(e)
@@ -867,7 +898,11 @@ async def get_cross_references(
         }
 
     except Exception as e:
-        logger.error(f"Failed to get cross-references: {e}")
+        logger.error("Failed to get cross-references", data={
+            "naics_code": naics_code,
+            "error_type": type(e).__name__,
+            "error_message": str(e)[:200]
+        })
         return {
             "error": str(e),
             "cross_references": []
@@ -1036,10 +1071,22 @@ async def validate_classification(
                 "confidence": top_match.confidence.overall
             }
 
+        # Log validation result
+        logger.info("Validation completed", data={
+            "naics_code": naics_code,
+            "status": status,
+            "rank": provided_rank,
+            "exclusion_warnings": len(exclusion_warnings) if exclusion_warnings else 0
+        })
+
         return response
 
     except Exception as e:
-        logger.error(f"Validation failed: {e}")
+        logger.error("Validation failed", data={
+            "naics_code": naics_code,
+            "error_type": type(e).__name__,
+            "error_message": str(e)[:200]
+        })
         return {
             "naics_code": naics_code,
             "status": "error",

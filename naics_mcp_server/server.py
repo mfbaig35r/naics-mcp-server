@@ -1128,7 +1128,91 @@ async def get_workbook_template(
         }
 
 
-# === Health Check ===
+# === Server Info & Health ===
+
+@mcp.tool()
+async def get_workflow_guide() -> Dict[str, Any]:
+    """
+    Get the recommended workflows for NAICS classification.
+
+    Call this to understand how to use the NAICS tools effectively.
+    Returns workflow guidance for common use cases:
+    - Quick classification (simple businesses)
+    - Full classification (complex/multi-segment companies)
+    - Boundary cases (activity fits multiple codes)
+    - Batch classification
+    - Hierarchy exploration
+
+    This is especially useful on first use or when unsure
+    which tools to use in what order.
+    """
+    return {
+        "workflows": {
+            "quick_classification": {
+                "description": "For straightforward single-activity businesses",
+                "steps": [
+                    "1. classify_business with a clear description",
+                    "2. If confidence > 60%, you're likely done",
+                    "3. Optionally verify with search_index_terms for exact terminology"
+                ]
+            },
+            "full_classification": {
+                "description": "For companies with multiple business lines or ambiguous activities",
+                "steps": [
+                    "1. Research the company's segments and primary revenue sources",
+                    "2. classify_business for initial assessment",
+                    "3. search_naics_codes for each major segment/activity",
+                    "4. search_index_terms for specific products/services",
+                    "5. compare_codes for top candidates side-by-side",
+                    "6. get_cross_references to check for exclusions (CRITICAL)",
+                    "7. get_siblings or find_similar_industries for alternatives",
+                    "8. write_to_workbook with form_type='classification_analysis' to document"
+                ]
+            },
+            "boundary_cases": {
+                "description": "When a business sits between two codes",
+                "steps": [
+                    "1. Search from multiple angles (product vs service vs customer)",
+                    "2. get_cross_references on both candidates - exclusions are authoritative",
+                    "3. compare_codes to see descriptions and index terms side-by-side",
+                    "4. get_code_hierarchy to understand where each code sits conceptually",
+                    "5. Document with write_to_workbook form_type='decision_tree'"
+                ]
+            },
+            "batch_classification": {
+                "description": "For processing many businesses efficiently",
+                "steps": [
+                    "1. classify_batch for efficiency",
+                    "2. Triage by confidence: >50% accept, 35-50% spot-check, <35% manual review",
+                    "3. Use full_classification workflow for low-confidence items"
+                ]
+            },
+            "hierarchy_exploration": {
+                "description": "For exploring the NAICS structure itself",
+                "steps": [
+                    "1. get_sector_overview to see all 20 sectors",
+                    "2. get_children to drill down into subsectors",
+                    "3. get_siblings to see what else is at the same level",
+                    "4. find_similar_industries for semantically related codes"
+                ]
+            }
+        },
+        "key_principles": [
+            "PRIMARY ACTIVITY determines classification (largest revenue source)",
+            "6-digit codes are most specific and preferred",
+            "Cross-references tell you what activities are EXCLUDED - always check",
+            "Index term matches are strong evidence of correct classification",
+            "When uncertain, document reasoning with the workbook tools"
+        ],
+        "tool_categories": {
+            "search": ["search_naics_codes", "search_index_terms", "classify_business", "classify_batch"],
+            "navigation": ["get_code_hierarchy", "get_children", "get_siblings", "get_sector_overview", "find_similar_industries"],
+            "validation": ["get_cross_references", "compare_codes"],
+            "documentation": ["get_workbook_template", "write_to_workbook", "search_workbook", "get_workbook_entry"],
+            "diagnostics": ["get_server_health", "get_workflow_guide"]
+        }
+    }
+
 
 @mcp.tool()
 async def get_server_health(ctx: Context) -> Dict[str, Any]:

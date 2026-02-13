@@ -13,7 +13,15 @@ Usage:
 __version__ = "0.1.0"
 __author__ = "NAICS MCP Team"
 
-from .config import SearchConfig, ServerConfig
+from .config import (
+    SearchConfig,
+    ServerConfig,
+    AppConfig,
+    get_config,
+    get_search_config,
+    get_server_config,
+    reset_config,
+)
 from .core.database import NAICSDatabase
 from .core.search_engine import NAICSSearchEngine
 from .core.embeddings import TextEmbedder, EmbeddingCache
@@ -32,6 +40,11 @@ __all__ = [
     # Config
     "SearchConfig",
     "ServerConfig",
+    "AppConfig",
+    "get_config",
+    "get_search_config",
+    "get_server_config",
+    "reset_config",
     # Core
     "NAICSDatabase",
     "NAICSSearchEngine",

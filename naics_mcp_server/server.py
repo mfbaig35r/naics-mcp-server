@@ -1185,6 +1185,49 @@ async def write_to_workbook(
     • custom: Freeform structured content
 
     Each entry is timestamped, tagged, and searchable.
+
+    ## Linking Entries for Multi-Step Analysis
+
+    Use `parent_entry_id` to create linked chains of analysis:
+
+    1. **Initial Analysis** → Returns entry_id "abc123"
+       ```
+       write_to_workbook(
+         form_type="business_profile",
+         label="Acme Corp Initial Profile",
+         content={...}
+       )
+       ```
+
+    2. **Follow-up Research** → Links to parent
+       ```
+       write_to_workbook(
+         form_type="research_notes",
+         label="Acme Corp - Industry Research",
+         content={...},
+         parent_entry_id="abc123"  # Links to initial analysis
+       )
+       ```
+
+    3. **Final Decision** → Links to research
+       ```
+       write_to_workbook(
+         form_type="classification_analysis",
+         label="Acme Corp Final Classification",
+         content={...},
+         parent_entry_id="def456"  # Links to research step
+       )
+       ```
+
+    Then use `search_workbook(parent_entry_id="abc123")` to find all
+    follow-up entries, or read each entry to trace the full chain.
+
+    ## Common Linking Patterns
+
+    • **Deep Dive**: business_profile → research_notes → classification_analysis
+    • **Comparison**: business_profile → industry_comparison → decision
+    • **Boundary Case**: classification_analysis → cross_reference_notes → revised classification
+    • **SIC Migration**: sic_conversion → research_notes → classification_analysis
     """
     app_ctx: AppContext = ctx.request_context.lifespan_context
 
@@ -1434,6 +1477,33 @@ async def get_workflow_guide() -> Dict[str, Any]:
                     "3. get_siblings to see what else is at the same level",
                     "4. find_similar_industries for semantically related codes"
                 ]
+            },
+            "documented_analysis": {
+                "description": "For complex cases requiring traceable reasoning with linked entries",
+                "steps": [
+                    "1. write_to_workbook with form_type='business_profile' - capture initial understanding",
+                    "2. Perform research using search tools, cross-references, comparisons",
+                    "3. write_to_workbook with form_type='research_notes', parent_entry_id=step1_id",
+                    "4. If comparing codes: write_to_workbook form_type='industry_comparison', parent_entry_id=step3_id",
+                    "5. Final decision: write_to_workbook form_type='classification_analysis', parent_entry_id=previous_id",
+                    "6. Use search_workbook(parent_entry_id=root_id) to retrieve full analysis chain"
+                ],
+                "linking_patterns": {
+                    "deep_dive": "business_profile → research_notes → classification_analysis",
+                    "comparison": "business_profile → industry_comparison → classification_analysis",
+                    "boundary_case": "classification_analysis → cross_reference_notes → revised_classification",
+                    "sic_migration": "sic_conversion → research_notes → classification_analysis"
+                }
+            },
+            "validation": {
+                "description": "For verifying existing or user-provided classifications",
+                "steps": [
+                    "1. validate_classification with code and business description",
+                    "2. If status='valid', classification is confirmed",
+                    "3. If status='questionable', review exclusion_warnings and suggested_alternatives",
+                    "4. If status='invalid', use suggested_alternatives or run classify_business",
+                    "5. Document decision with write_to_workbook if needed"
+                ]
             }
         },
         "key_principles": [
@@ -1446,9 +1516,25 @@ async def get_workflow_guide() -> Dict[str, Any]:
         "tool_categories": {
             "search": ["search_naics_codes", "search_index_terms", "classify_business", "classify_batch"],
             "navigation": ["get_code_hierarchy", "get_children", "get_siblings", "get_sector_overview", "find_similar_industries"],
-            "validation": ["get_cross_references", "compare_codes"],
+            "validation": ["get_cross_references", "compare_codes", "validate_classification"],
             "documentation": ["get_workbook_template", "write_to_workbook", "search_workbook", "get_workbook_entry"],
             "diagnostics": ["get_server_health", "get_workflow_guide"]
+        },
+        "workbook_linking": {
+            "description": "Use parent_entry_id to create traceable analysis chains",
+            "how_it_works": [
+                "1. First entry returns an entry_id (e.g., 'abc123')",
+                "2. Pass that as parent_entry_id when creating follow-up entries",
+                "3. Chain continues: each entry can be parent to the next",
+                "4. Use search_workbook(parent_entry_id='abc123') to find all children",
+                "5. Use get_workbook_entry to read any entry and see its parent_entry_id"
+            ],
+            "benefits": [
+                "Full audit trail of classification reasoning",
+                "Easy to review multi-step analysis",
+                "Supports complex boundary case documentation",
+                "Enables 'show your work' for compliance"
+            ]
         }
     }
 

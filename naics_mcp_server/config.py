@@ -197,6 +197,47 @@ class SearchConfig(BaseSettings):
         }
 
 
+class MetricsConfig(BaseSettings):
+    """
+    Configuration for Prometheus metrics.
+
+    Environment variables use the NAICS_ prefix.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="NAICS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # Enable/disable metrics
+    enable_metrics: bool = Field(default=True, description="Enable Prometheus metrics collection")
+    metrics_port: int = Field(
+        default=9090, ge=1024, le=65535, description="Port for metrics HTTP server"
+    )
+    metrics_path: str = Field(default="/metrics", description="Path for metrics endpoint")
+
+    # Performance settings
+    slow_request_threshold_ms: int = Field(
+        default=200, ge=10, le=10000, description="Threshold for slow request warnings (ms)"
+    )
+
+    # Cache stats update interval
+    cache_stats_interval_seconds: int = Field(
+        default=60, ge=10, le=600, description="Interval for updating cache statistics"
+    )
+
+    def to_dict(self) -> dict:
+        """Convert config to dictionary for logging/debugging."""
+        return {
+            "enable_metrics": self.enable_metrics,
+            "metrics_port": self.metrics_port,
+            "metrics_path": self.metrics_path,
+            "slow_request_threshold_ms": self.slow_request_threshold_ms,
+        }
+
+
 class ServerConfig(BaseSettings):
     """
     Configuration for the MCP server itself.
@@ -262,6 +303,7 @@ class AppConfig(BaseModel):
 
     search: SearchConfig = Field(default_factory=SearchConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
+    metrics: MetricsConfig = Field(default_factory=MetricsConfig)
 
     def validate_startup(self) -> list[str]:
         """
@@ -306,6 +348,7 @@ class AppConfig(BaseModel):
         return {
             "search": self.search.to_dict(),
             "server": self.server.to_dict(),
+            "metrics": self.metrics.to_dict(),
         }
 
 
@@ -355,6 +398,11 @@ def get_search_config() -> SearchConfig:
 def get_server_config() -> ServerConfig:
     """Get server configuration (convenience function)."""
     return get_config().server
+
+
+def get_metrics_config() -> MetricsConfig:
+    """Get metrics configuration (convenience function)."""
+    return get_config().metrics
 
 
 # Backwards compatibility - these are deprecated but maintained for existing code

@@ -22,6 +22,13 @@ from ..core.database import NAICSDatabase
 from ..core.embeddings import EmbeddingCache, TextEmbedder
 from ..core.errors import DatabaseError, EmbeddingError
 from ..core.query_expansion import QueryExpander, SmartQueryParser
+from ..observability.metrics import (
+    record_cache_hit,
+    record_cache_miss,
+    record_crossref_lookup,
+    record_search_fallback,
+    update_cache_stats,
+)
 from ..models.naics_models import CrossReference, IndexTerm, NAICSCode, NAICSLevel
 from ..models.search_models import (
     ConfidenceScore,
@@ -198,12 +205,14 @@ class SearchCache:
             result, timestamp = self.cache[key]
             if time.time() - timestamp < self.ttl:
                 self.hits += 1
+                record_cache_hit("search")
                 logger.debug(f"Cache hit for query: {query[:50]}...")
                 return result
             else:
                 del self.cache[key]
 
         self.misses += 1
+        record_cache_miss("search")
         return None
 
     def put(
@@ -493,6 +502,7 @@ class NAICSSearchEngine:
                 f"Embedding error during {strategy.value} search, falling back to lexical: {e}"
             )
             fallback_used = "lexical"
+            record_search_fallback(strategy.value, "lexical")
             try:
                 matches = await self._lexical_search(query, expanded_terms)
                 strategy = SearchStrategy.LEXICAL
@@ -508,6 +518,7 @@ class NAICSSearchEngine:
         except Exception as e:
             logger.error(f"Search failed with {strategy.value}, falling back to lexical: {e}")
             fallback_used = "lexical"
+            record_search_fallback(strategy.value, "lexical")
             try:
                 matches = await self._lexical_search(query, expanded_terms)
                 strategy = SearchStrategy.LEXICAL
@@ -527,6 +538,7 @@ class NAICSSearchEngine:
 
         # Check cross-references if enabled
         cross_refs_checked = 0
+        total_exclusions_found = 0
         if include_cross_refs and self.config.enable_cross_references:
             for match in matches[:20]:  # Only check top 20
                 exclusions = await self.cross_ref_service.check_exclusions(
@@ -544,7 +556,10 @@ class NAICSSearchEngine:
                         )
                         for e in exclusions
                     ]
+                    total_exclusions_found += len(exclusions)
                 cross_refs_checked += 1
+            # Record cross-reference metrics
+            record_crossref_lookup(total_exclusions_found)
 
         # Filter by minimum confidence
         matches = [m for m in matches if m.confidence.overall >= min_confidence]

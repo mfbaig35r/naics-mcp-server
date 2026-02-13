@@ -34,6 +34,7 @@ from .core.validation import (
     validate_strategy,
 )
 from .models.search_models import SearchStrategy
+from .config import get_metrics_config
 from .observability.audit import SearchAuditLog, SearchEvent
 from .observability.logging import (
     generate_request_id,
@@ -44,6 +45,13 @@ from .observability.logging import (
     sanitize_text,
     set_request_context,
     setup_logging,
+)
+from .observability.metrics import (
+    Timer,
+    initialize_metrics,
+    record_search_metrics,
+    update_data_stats,
+    update_health_status,
 )
 from .tools.workbook_tools import (
     WorkbookSearchRequest,
@@ -239,6 +247,25 @@ async def lifespan(server: FastMCP):
     )
     log_server_ready(stats)
 
+    # Initialize metrics
+    metrics_config = get_metrics_config()
+    if metrics_config.enable_metrics:
+        initialize_metrics(
+            version=server_config.version,
+            embedding_model=search_config.embedding_model,
+            database_path=str(search_config.database_path),
+        )
+        # Update data statistics
+        update_data_stats(
+            total_codes=stats.get("total_codes", 0),
+            total_embeddings=stats.get("embeddings_count", 0),
+            total_index_terms=stats.get("total_index_terms", 0),
+            total_cross_references=stats.get("total_cross_references", 0),
+        )
+        # Set initial health status
+        update_health_status("healthy", uptime_seconds=0)
+        logger.info("Metrics initialized", data={"port": metrics_config.metrics_port})
+
     try:
         yield app_context
     finally:
@@ -393,6 +420,14 @@ async def search_naics_codes(request: SearchRequest, ctx: Context) -> SearchResp
         # Log search completion
         search_event.complete(results)
         await app_ctx.audit_log.log_search(search_event)
+
+        # Record metrics
+        record_search_metrics(
+            strategy=strategy.value,
+            duration_seconds=search_event.duration_ms / 1000.0,
+            results_count=len(results.matches),
+            top_confidence=results.matches[0].confidence.overall if results.matches else None,
+        )
 
         # Generate guidance
         guidance = generate_search_guidance(results)
@@ -1742,6 +1777,36 @@ async def get_server_health(ctx: Context) -> dict[str, Any]:
         health["issues"].append(f"Workbook not available: {e}")
 
     return health
+
+
+@mcp.tool()
+async def get_metrics() -> dict[str, Any]:
+    """
+    Get Prometheus metrics for monitoring.
+
+    Returns metrics in a structured format including:
+    - Tool request counts and latencies
+    - Search performance metrics
+    - Cache hit rates
+    - Database query statistics
+    - Health status
+
+    For Prometheus scraping, use the metrics HTTP endpoint instead.
+    This tool is useful for debugging and inline monitoring.
+    """
+    from .observability.metrics import get_metrics_text
+
+    # Return metrics as structured data
+    metrics_text = get_metrics_text()
+
+    # Parse key metrics into summary
+    summary = {
+        "format": "prometheus",
+        "metrics_count": metrics_text.count("# HELP"),
+        "raw_metrics": metrics_text,
+    }
+
+    return summary
 
 
 # === Resources ===

@@ -206,6 +206,16 @@ def cmd_hierarchy(args):
     db.disconnect()
 
 
+def cmd_metrics_server(args):
+    """Run the Prometheus metrics HTTP server."""
+    setup_logging(args.debug)
+    logger.info(f"Starting metrics server on {args.host}:{args.port}")
+
+    from .observability.metrics_server import run_metrics_server
+
+    run_metrics_server(host=args.host, port=args.port)
+
+
 def main():
     """Main entry point for CLI."""
     parser = argparse.ArgumentParser(
@@ -266,6 +276,18 @@ Examples:
     hierarchy_parser = subparsers.add_parser("hierarchy", help="Show code hierarchy")
     hierarchy_parser.add_argument("code", type=str, help="NAICS code")
     hierarchy_parser.set_defaults(func=cmd_hierarchy)
+
+    # metrics-server command
+    metrics_parser = subparsers.add_parser(
+        "metrics-server", help="Run Prometheus metrics HTTP server"
+    )
+    metrics_parser.add_argument(
+        "--host", type=str, default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)"
+    )
+    metrics_parser.add_argument(
+        "--port", type=int, default=9090, help="Port to listen on (default: 9090)"
+    )
+    metrics_parser.set_defaults(func=cmd_metrics_server)
 
     # Parse arguments
     args = parser.parse_args()

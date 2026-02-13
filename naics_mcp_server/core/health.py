@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
+from ..observability.metrics import update_cache_stats, update_health_status
+
 logger = logging.getLogger(__name__)
 
 
@@ -243,6 +245,16 @@ class HealthChecker:
         else:
             status = HealthStatus.HEALTHY
 
+        # Update metrics
+        component_status = {
+            name: c.status == ComponentStatus.READY for name, c in components.items()
+        }
+        update_health_status(
+            status=status.value,
+            components=component_status,
+            uptime_seconds=self.uptime_seconds,
+        )
+
         return HealthCheckResult(
             status=status,
             timestamp=datetime.now(UTC),
@@ -360,6 +372,18 @@ class HealthChecker:
             # Get cache stats
             embedding_cache = self.search_engine.embedding_cache.get_stats()
             search_cache = self.search_engine.search_cache.get_stats()
+
+            # Update cache metrics
+            update_cache_stats(
+                "embedding",
+                embedding_cache.get("size", 0),
+                embedding_cache.get("hit_rate", 0),
+            )
+            update_cache_stats(
+                "search",
+                search_cache.get("size", 0),
+                search_cache.get("hit_rate", 0),
+            )
 
             return ComponentHealth(
                 name="search_engine",

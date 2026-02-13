@@ -18,6 +18,27 @@ from .logging import (
     set_request_context,
     setup_logging,
 )
+from .metrics import (
+    Timer,
+    get_metrics,
+    get_metrics_text,
+    initialize_metrics,
+    record_cache_hit,
+    record_cache_miss,
+    record_crossref_lookup,
+    record_db_connection_error,
+    record_embedding_batch,
+    record_search_fallback,
+    record_search_metrics,
+    reset_metrics,
+    track_db_query,
+    track_embedding_operation,
+    track_tool_metrics,
+    update_cache_stats,
+    update_data_stats,
+    update_db_connections,
+    update_health_status,
+)
 
 __all__ = [
     # Audit
@@ -37,4 +58,24 @@ __all__ = [
     "log_server_ready",
     "log_server_shutdown",
     "LogConfig",
+    # Metrics
+    "initialize_metrics",
+    "reset_metrics",
+    "get_metrics",
+    "get_metrics_text",
+    "Timer",
+    "track_tool_metrics",
+    "track_db_query",
+    "track_embedding_operation",
+    "record_search_metrics",
+    "record_cache_hit",
+    "record_cache_miss",
+    "update_cache_stats",
+    "record_search_fallback",
+    "record_crossref_lookup",
+    "update_health_status",
+    "update_data_stats",
+    "record_db_connection_error",
+    "update_db_connections",
+    "record_embedding_batch",
 ]

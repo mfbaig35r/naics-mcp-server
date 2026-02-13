@@ -669,7 +669,7 @@ async def get_siblings(
         }
 
 
-# === Classification Tools (2) ===
+# === Classification Tools (3) ===
 
 @mcp.tool()
 async def classify_business(
@@ -871,6 +871,179 @@ async def get_cross_references(
         return {
             "error": str(e),
             "cross_references": []
+        }
+
+
+@mcp.tool()
+async def validate_classification(
+    naics_code: str,
+    business_description: str,
+    ctx: Context
+) -> Dict[str, Any]:
+    """
+    Validate if a NAICS code is correct for a business description.
+
+    Use this to verify an existing classification or check if a code
+    chosen by the user is appropriate. Returns:
+    - Validation status (valid, questionable, invalid)
+    - Confidence that this code matches the description
+    - Cross-reference warnings (exclusions that may apply)
+    - Alternative codes if the classification seems wrong
+
+    Example use cases:
+    - User says "I think I'm 541511" - validate if that's correct
+    - Checking a classification before finalizing
+    - Auditing existing NAICS assignments
+    """
+    app_ctx: AppContext = ctx.request_context.lifespan_context
+
+    try:
+        # 1. Verify the code exists
+        code_info = await app_ctx.database.get_by_code(naics_code)
+        if not code_info:
+            return {
+                "naics_code": naics_code,
+                "status": "invalid",
+                "reason": f"NAICS code {naics_code} does not exist",
+                "valid": False
+            }
+
+        # 2. Search for best matches for this description
+        results = await app_ctx.search_engine.search(
+            query=business_description,
+            strategy=SearchStrategy.HYBRID,
+            limit=5,
+            min_confidence=0.2,
+            include_cross_refs=True
+        )
+
+        # 3. Check if the provided code is in the top results
+        provided_match = None
+        provided_rank = None
+        for i, match in enumerate(results.matches):
+            if match.code.node_code == naics_code:
+                provided_match = match
+                provided_rank = i + 1
+                break
+
+        # 4. Get cross-references for the provided code
+        cross_refs = await app_ctx.database.get_cross_references(naics_code)
+        exclusion_warnings = []
+
+        # Check if the description might match an exclusion
+        desc_lower = business_description.lower()
+        for cr in cross_refs:
+            if cr.reference_type == "excludes" and cr.excluded_activity:
+                activity_lower = cr.excluded_activity.lower()
+                # Simple keyword overlap check
+                activity_words = set(activity_lower.split())
+                desc_words = set(desc_lower.split())
+                overlap = activity_words & desc_words
+                if len(overlap) >= 2 or any(word in desc_lower for word in activity_words if len(word) > 5):
+                    exclusion_warnings.append({
+                        "excluded_activity": cr.excluded_activity,
+                        "should_be": cr.target_code,
+                        "reference": cr.reference_text[:200]
+                    })
+
+        # 5. Determine validation status
+        top_match = results.matches[0] if results.matches else None
+        alternatives = []
+
+        if provided_match:
+            confidence = provided_match.confidence.overall
+
+            if provided_rank == 1:
+                if exclusion_warnings:
+                    status = "questionable"
+                    reason = f"Code matches well (rank #1, {confidence:.0%} confidence) but exclusion warnings apply"
+                elif confidence >= 0.7:
+                    status = "valid"
+                    reason = f"Strong match - rank #1 with {confidence:.0%} confidence"
+                else:
+                    status = "valid"
+                    reason = f"Best available match (rank #1) but moderate confidence ({confidence:.0%})"
+            elif provided_rank <= 3:
+                status = "questionable"
+                reason = f"Acceptable match (rank #{provided_rank}, {confidence:.0%} confidence) but better alternatives exist"
+                alternatives = [
+                    {
+                        "code": m.code.node_code,
+                        "title": m.code.title,
+                        "confidence": m.confidence.overall,
+                        "rank": i + 1
+                    }
+                    for i, m in enumerate(results.matches[:3])
+                    if m.code.node_code != naics_code
+                ]
+            else:
+                status = "questionable"
+                reason = f"Weak match (rank #{provided_rank}, {confidence:.0%} confidence) - better alternatives likely"
+                alternatives = [
+                    {
+                        "code": m.code.node_code,
+                        "title": m.code.title,
+                        "confidence": m.confidence.overall,
+                        "rank": i + 1
+                    }
+                    for i, m in enumerate(results.matches[:3])
+                ]
+        else:
+            # Code not in top results at all
+            status = "invalid"
+            reason = f"Code {naics_code} ({code_info.title}) does not appear in top matches for this description"
+            alternatives = [
+                {
+                    "code": m.code.node_code,
+                    "title": m.code.title,
+                    "confidence": m.confidence.overall,
+                    "rank": i + 1
+                }
+                for i, m in enumerate(results.matches[:3])
+            ]
+
+        # 6. Build response
+        response = {
+            "naics_code": naics_code,
+            "title": code_info.title,
+            "description_checked": business_description,
+            "status": status,
+            "valid": status == "valid",
+            "reason": reason
+        }
+
+        if provided_match:
+            response["confidence"] = provided_match.confidence.overall
+            response["rank_in_results"] = provided_rank
+            response["confidence_breakdown"] = {
+                "semantic": provided_match.confidence.semantic,
+                "lexical": provided_match.confidence.lexical,
+                "index_term": provided_match.confidence.index_term,
+                "specificity": provided_match.confidence.specificity
+            }
+
+        if exclusion_warnings:
+            response["exclusion_warnings"] = exclusion_warnings
+            response["warning"] = f"Description may match {len(exclusion_warnings)} exclusion(s) for this code"
+
+        if alternatives:
+            response["suggested_alternatives"] = alternatives
+
+        if top_match and top_match.code.node_code != naics_code:
+            response["best_match"] = {
+                "code": top_match.code.node_code,
+                "title": top_match.code.title,
+                "confidence": top_match.confidence.overall
+            }
+
+        return response
+
+    except Exception as e:
+        logger.error(f"Validation failed: {e}")
+        return {
+            "naics_code": naics_code,
+            "status": "error",
+            "error": str(e)
         }
 
 

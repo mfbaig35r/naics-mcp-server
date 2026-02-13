@@ -66,7 +66,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP"]
-ignore = ["E501", "N818"]  # N818: NAICSException is intentionally named
+ignore = ["E501", "N818", "UP042"]  # N818: NAICSException naming, UP042: str,Enum pattern for Python 3.10 compat
 
 [tool.mypy]
 python_version = "3.11"

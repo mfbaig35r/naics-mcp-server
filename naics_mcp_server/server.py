@@ -717,31 +717,97 @@ async def classify_business(
                 "title": primary.code.title,
                 "level": primary.code.level.value,
                 "confidence": primary.confidence.overall,
-                "hierarchy": primary.hierarchy_path
+                "confidence_breakdown": {
+                    "semantic": primary.confidence.semantic,
+                    "lexical": primary.confidence.lexical,
+                    "index_term": primary.confidence.index_term,
+                    "specificity": primary.confidence.specificity,
+                    "cross_ref": primary.confidence.cross_ref
+                },
+                "hierarchy": primary.hierarchy_path,
+                "matched_index_terms": primary.matched_index_terms
             },
             "alternatives": [
                 {
                     "code": alt.code.node_code,
                     "title": alt.code.title,
-                    "confidence": alt.confidence.overall
+                    "confidence": alt.confidence.overall,
+                    "matched_index_terms": alt.matched_index_terms
                 }
                 for alt in alternatives
             ]
         }
 
         if request.include_reasoning:
-            reasoning_parts = [
-                f"Primary classification: {primary.code.node_code} - {primary.code.title}",
-                f"Confidence: {primary.confidence.overall:.1%}",
-                primary.confidence.to_explanation()
-            ]
+            reasoning_parts = []
 
+            # 1. Primary classification summary
+            reasoning_parts.append(f"**Primary Classification:** {primary.code.node_code} - {primary.code.title}")
+            reasoning_parts.append(f"**Overall Confidence:** {primary.confidence.overall:.1%}")
+            reasoning_parts.append("")
+
+            # 2. Key decision factor - identify what drove the match
+            conf = primary.confidence
+            decision_factors = []
+            if conf.semantic > 0.7:
+                decision_factors.append(f"semantic similarity ({conf.semantic:.0%})")
+            if conf.lexical > 0.5:
+                decision_factors.append(f"exact term matches ({conf.lexical:.0%})")
+            if conf.index_term > 0.5:
+                decision_factors.append(f"official index term match ({conf.index_term:.0%})")
+            if conf.specificity > 0.7:
+                decision_factors.append(f"most specific level ({conf.specificity:.0%})")
+
+            if decision_factors:
+                reasoning_parts.append(f"**Key Decision Factors:** {', '.join(decision_factors)}")
+            else:
+                reasoning_parts.append("**Key Decision Factors:** General context match")
+            reasoning_parts.append("")
+
+            # 3. Index term matches
             if primary.matched_index_terms:
-                reasoning_parts.append(f"Matches official index terms: {', '.join(primary.matched_index_terms[:3])}")
+                reasoning_parts.append(f"**Official Index Terms Matched:** {', '.join(primary.matched_index_terms[:5])}")
+            else:
+                reasoning_parts.append("**Official Index Terms Matched:** None (matched via description)")
+            reasoning_parts.append("")
 
+            # 4. Why chosen over alternatives
+            if alternatives:
+                reasoning_parts.append("**Why This Over Alternatives:**")
+                for alt in alternatives[:3]:
+                    delta = primary.confidence.overall - alt.confidence.overall
+                    reasons = []
+                    if primary.confidence.semantic > alt.confidence.semantic + 0.1:
+                        reasons.append("better semantic fit")
+                    if primary.confidence.index_term > alt.confidence.index_term:
+                        reasons.append("stronger index term match")
+                    if primary.confidence.specificity > alt.confidence.specificity:
+                        reasons.append("more specific code")
+                    if not reasons:
+                        reasons.append("higher overall score")
+                    reasoning_parts.append(
+                        f"  - vs {alt.code.node_code} ({alt.code.title}): "
+                        f"+{delta:.0%} confidence ({', '.join(reasons)})"
+                    )
+                reasoning_parts.append("")
+
+            # 5. Cross-reference status
+            if request.check_cross_refs:
+                if primary.exclusion_warnings:
+                    reasoning_parts.append("**Cross-References Checked:** Yes - WARNINGS FOUND")
+                elif primary.relevant_cross_refs:
+                    reasoning_parts.append(f"**Cross-References Checked:** Yes - {len(primary.relevant_cross_refs)} references reviewed, no conflicts")
+                else:
+                    reasoning_parts.append("**Cross-References Checked:** Yes - no applicable exclusions")
+            else:
+                reasoning_parts.append("**Cross-References Checked:** No (use check_cross_refs=true for full validation)")
+            reasoning_parts.append("")
+
+            # 6. Exclusion warnings (if any)
             if primary.exclusion_warnings:
-                reasoning_parts.append("WARNINGS:")
-                reasoning_parts.extend(primary.exclusion_warnings)
+                reasoning_parts.append("⚠️ **EXCLUSION WARNINGS:**")
+                for warning in primary.exclusion_warnings:
+                    reasoning_parts.append(f"  - {warning}")
 
             response["reasoning"] = "\n".join(reasoning_parts)
 

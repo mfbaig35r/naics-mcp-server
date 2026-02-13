@@ -1,25 +1,72 @@
 # NAICS MCP Server
 
+[![CI](https://github.com/your-org/naics-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/naics-mcp-server/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 An intelligent industry classification service for NAICS 2022, built with the Model Context Protocol (MCP).
 
 ## Features
 
-- **Semantic Search**: Natural language search for NAICS codes using embeddings
-- **Hybrid Search**: Combines semantic understanding with exact term matching (70/30 split)
-- **5-Level Hierarchy**: Navigate from Sector (2-digit) to National Industry (6-digit)
-- **Cross-Reference Integration**: Critical exclusion checks for accurate classification
-- **Index Term Search**: 20,398 official NAICS index terms
-- **Classification Workbook**: Record and track classification decisions
+- **Semantic Search** - Natural language search using sentence embeddings
+- **Hybrid Search** - Combines semantic understanding with exact term matching
+- **5-Level Hierarchy** - Navigate from Sector (2-digit) to National Industry (6-digit)
+- **Cross-Reference Integration** - Critical exclusion checks for accurate classification
+- **Index Term Search** - 20,398 official NAICS index terms
+- **Classification Workbook** - Record and track classification decisions
+- **Health Monitoring** - Kubernetes-ready liveness and readiness probes
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Docker](#docker)
+- [MCP Tools](#mcp-tools)
+- [CLI Usage](#cli-usage)
+- [Health Checks](#health-checks)
+- [Development](#development)
+- [Architecture](#architecture)
+- [License](#license)
 
 ## Quick Start
 
-### Installation
+### Using Docker (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/your-org/naics-mcp-server.git
+cd naics-mcp-server
+
+# Start the server
+docker compose up
+```
+
+### Using pip
+
+```bash
+# Install
+pip install naics-mcp-server
+
+# Initialize database
+naics-mcp init
+
+# Generate embeddings
+naics-mcp embeddings
+
+# Run the server
+naics-mcp-server
+```
+
+## Installation
+
+### From PyPI
 
 ```bash
 pip install naics-mcp-server
 ```
 
-Or install from source:
+### From Source
 
 ```bash
 git clone https://github.com/your-org/naics-mcp-server.git
@@ -27,136 +74,397 @@ cd naics-mcp-server
 pip install -e .
 ```
 
-### Running the Server
+### With Development Dependencies
 
 ```bash
-# As MCP server
-python -m naics_mcp_server
-
-# CLI commands
-naics-mcp search "retail grocery store"
-naics-mcp hierarchy 445110
-naics-mcp stats
+pip install -e ".[dev]"
 ```
 
-### Configuration
+## Configuration
 
-Set environment variables:
+The server is configured via environment variables with sensible defaults.
+
+### Core Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NAICS_DATABASE_PATH` | `~/.cache/naics-mcp-server/naics.duckdb` | Path to DuckDB database |
+| `NAICS_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence transformer model |
+| `NAICS_DEBUG` | `false` | Enable debug mode |
+
+### Search Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NAICS_HYBRID_WEIGHT_SEMANTIC` | `0.7` | Weight for semantic search (0-1) |
+| `NAICS_MIN_CONFIDENCE` | `0.3` | Minimum confidence threshold |
+| `NAICS_DEFAULT_LIMIT` | `10` | Default results limit |
+| `NAICS_QUERY_TIMEOUT_SECONDS` | `5` | Query timeout |
+
+### Feature Flags
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NAICS_ENABLE_QUERY_EXPANSION` | `true` | Expand queries with synonyms |
+| `NAICS_ENABLE_CROSS_REFERENCES` | `true` | Include cross-reference checks |
+| `NAICS_ENABLE_AUDIT_LOG` | `true` | Log search queries for audit |
+
+### Logging
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NAICS_LOG_LEVEL` | `INFO` | Log level (DEBUG, INFO, WARNING, ERROR) |
+| `NAICS_LOG_FORMAT` | `text` | Log format (`text` or `json`) |
+| `NAICS_LOG_FILE` | `None` | Optional file path for logs |
+
+### Example `.env` File
 
 ```bash
-export NAICS_DATABASE_PATH=data/naics.duckdb
-export NAICS_EMBEDDING_MODEL=all-MiniLM-L6-v2
-export NAICS_SEMANTIC_WEIGHT=0.7
-export NAICS_MIN_CONFIDENCE=0.3
-export NAICS_ENABLE_AUDIT=true
-export DEBUG=false
+# Database
+NAICS_DATABASE_PATH=/data/naics.duckdb
+
+# Search tuning
+NAICS_HYBRID_WEIGHT_SEMANTIC=0.7
+NAICS_MIN_CONFIDENCE=0.3
+
+# Logging
+NAICS_LOG_LEVEL=INFO
+NAICS_LOG_FORMAT=json
+
+# Debug (disable in production)
+NAICS_DEBUG=false
 ```
+
+## Docker
+
+### Using Docker Compose
+
+```bash
+# Start production server
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop
+docker compose down
+```
+
+### Development Mode
+
+```bash
+# Start with hot reload and debug logging
+docker compose --profile dev up naics-dev
+```
+
+### Initialize Database
+
+```bash
+# Initialize database schema
+docker compose --profile init run naics-init
+
+# Generate embeddings (takes a few minutes)
+docker compose --profile init run naics-embeddings
+```
+
+### Building the Image
+
+```bash
+# Build production image
+docker build -t naics-mcp-server:latest --target runtime .
+
+# Build development image
+docker build -t naics-mcp-server:dev --target development .
+```
+
+### Docker Volumes
+
+| Volume | Purpose |
+|--------|---------|
+| `naics-mcp-data` | Database storage |
+| `naics-mcp-cache` | Model cache (sentence-transformers) |
+| `naics-mcp-logs` | Application logs |
 
 ## MCP Tools
 
-### Search Tools (4)
+### Search Tools
 
-| Tool | Purpose |
-|------|---------|
+| Tool | Description |
+|------|-------------|
 | `search_naics_codes` | Hybrid semantic/lexical search with confidence scoring |
-| `search_index_terms` | Search official 20,398-term index |
-| `find_similar_industries` | Embedding similarity + cross-references |
-| `classify_batch` | Batch classification for multiple descriptions |
+| `search_index_terms` | Search official 20,398-term NAICS index |
+| `find_similar_industries` | Find codes similar to a given code using embeddings |
+| `classify_batch` | Classify multiple business descriptions efficiently |
 
-### Hierarchy Tools (3)
+### Hierarchy Tools
 
-| Tool | Purpose |
-|------|---------|
-| `get_code_hierarchy` | Full ancestor chain (Sector → National Industry) |
-| `get_children` | Immediate children of a code |
-| `get_siblings` | Codes at same level with same parent |
+| Tool | Description |
+|------|-------------|
+| `get_code_hierarchy` | Get full ancestor chain (Sector → National Industry) |
+| `get_children` | Get immediate children of a code |
+| `get_siblings` | Get codes at same level with same parent |
 
-### Classification Tools (2)
+### Classification Tools
 
-| Tool | Purpose |
-|------|---------|
-| `classify_business` | Classify description → NAICS with reasoning |
+| Tool | Description |
+|------|-------------|
+| `classify_business` | Classify description with detailed reasoning |
 | `get_cross_references` | Get exclusions/inclusions for a code |
+| `validate_classification` | Validate if a code is correct for a description |
 
-### Analytics Tools (2)
+### Analytics Tools
 
-| Tool | Purpose |
-|------|---------|
+| Tool | Description |
+|------|-------------|
 | `get_sector_overview` | Summary of sector/subsector structure |
 | `compare_codes` | Side-by-side comparison of multiple codes |
 
-### Workbook Tools (4)
+### Workbook Tools
 
-| Tool | Purpose |
-|------|---------|
+| Tool | Description |
+|------|-------------|
 | `write_to_workbook` | Record classification decisions |
 | `search_workbook` | Search past decisions |
 | `get_workbook_entry` | Retrieve specific entry |
-| `get_workbook_template` | Get form template |
+| `get_workbook_template` | Get form template for structured input |
 
-## Database Schema
+### Diagnostic Tools
 
-```sql
--- Primary codes (1,012 6-digit codes)
-naics_nodes (
-    node_code, level, title, description,
-    sector_code, subsector_code, industry_group_code, naics_industry_code,
-    raw_embedding_text, change_indicator, is_trilateral
-)
+| Tool | Description |
+|------|-------------|
+| `ping` | Simple liveness check |
+| `check_readiness` | Check if server is ready to handle requests |
+| `get_server_health` | Detailed health status of all components |
+| `get_workflow_guide` | Get recommended classification workflows |
 
--- Vector embeddings (384-dim)
-naics_embeddings (node_code, embedding, embedding_text)
+## CLI Usage
 
--- Official index terms (20,398 entries)
-naics_index_terms (term_id, naics_code, index_term, term_normalized)
+```bash
+# Run the MCP server
+naics-mcp serve
 
--- Cross-references (critical for classification)
-naics_cross_references (ref_id, source_code, reference_type, reference_text, target_code)
+# Search for NAICS codes
+naics-mcp search "retail grocery store"
+naics-mcp search "dog food manufacturing" --strategy semantic --limit 5
+
+# View code hierarchy
+naics-mcp hierarchy 445110
+
+# Show database statistics
+naics-mcp stats
+
+# Initialize/rebuild database
+naics-mcp init
+
+# Generate/rebuild embeddings
+naics-mcp embeddings
+naics-mcp embeddings --rebuild  # Force rebuild
 ```
 
-## Confidence Scoring
+## Health Checks
 
+The server provides health check endpoints suitable for Kubernetes probes.
+
+### Liveness Check
+
+```python
+# MCP tool: ping
+# Returns immediately if server process is alive
+{"status": "alive", "timestamp": "2024-01-15T10:30:00Z"}
 ```
-overall = (
-    0.40 * semantic_score +    # Core embedding match
-    0.20 * lexical_score +     # Term overlap
-    0.15 * index_term_match +  # Official index hit
-    0.15 * specificity_pref +  # 6-digit > 2-digit
-    0.10 * cross_ref_relevance # Classification guidance
-)
+
+### Readiness Check
+
+```python
+# MCP tool: check_readiness
+# Returns ready when database and embeddings are loaded
+{"status": "ready", "timestamp": "2024-01-15T10:30:00Z", "uptime_seconds": 120.5}
 ```
 
-## Data Sources
+### Detailed Health
 
-| Source File | Content |
-|-------------|---------|
-| `2-6 digit_2022_Codes.xlsx` | All NAICS codes + titles |
-| `2022_NAICS_Descriptions.xlsx` | Full descriptions |
-| `2022_NAICS_Index_File.xlsx` | 20,398 index terms |
-| `2022_NAICS_Cross_References.xlsx` | Classification guidance |
+```python
+# MCP tool: get_server_health
+# Returns detailed component status
+{
+  "status": "healthy",
+  "version": "0.1.0",
+  "uptime_seconds": 3600,
+  "components": {
+    "database": {"status": "ready", "total_codes": 2125},
+    "embedder": {"status": "ready", "model": "all-MiniLM-L6-v2"},
+    "search_engine": {"status": "ready"},
+    "embeddings": {"status": "ready", "coverage_percent": 100},
+    "cross_references": {"status": "ready", "total": 4500}
+  }
+}
+```
 
-## Performance Targets
+### Health Status Values
 
-| Metric | Target |
-|--------|--------|
-| Search latency | < 200ms |
-| Batch (100 items) | < 10s |
-| Server startup | < 3s (cached embeddings) |
+| Status | Meaning |
+|--------|---------|
+| `healthy` | All components ready |
+| `degraded` | Some components partial, but operational |
+| `unhealthy` | Critical components failed |
 
 ## Development
 
+### Setup
+
 ```bash
-# Install dev dependencies
+# Clone and install
+git clone https://github.com/your-org/naics-mcp-server.git
+cd naics-mcp-server
 pip install -e ".[dev]"
 
 # Run tests
 pytest
 
-# Format code
-black naics_mcp_server
-ruff check naics_mcp_server
+# Run tests with coverage
+pytest --cov=naics_mcp_server --cov-report=term-missing
+
+# Lint
+ruff check naics_mcp_server/ tests/
+
+# Format
+ruff format naics_mcp_server/ tests/
+
+# Type check
+mypy naics_mcp_server/
 ```
+
+### Project Structure
+
+```
+naics-mcp-server/
+├── naics_mcp_server/
+│   ├── __init__.py
+│   ├── server.py           # MCP server and tools
+│   ├── cli.py              # Command-line interface
+│   ├── config.py           # Pydantic configuration
+│   ├── core/
+│   │   ├── database.py     # DuckDB operations
+│   │   ├── embeddings.py   # Sentence transformers
+│   │   ├── search_engine.py # Hybrid search
+│   │   ├── health.py       # Health checks
+│   │   ├── errors.py       # Error handling
+│   │   └── validation.py   # Input validation
+│   ├── models/
+│   │   ├── naics_models.py # NAICS data models
+│   │   └── search_models.py # Search result models
+│   └── observability/
+│       ├── logging.py      # Structured logging
+│       └── audit.py        # Audit logging
+├── tests/
+├── data/                   # Database files (gitignored)
+├── Dockerfile
+├── docker-compose.yml
+└── pyproject.toml
+```
+
+## Architecture
+
+### Data Flow
+
+```
+User Query
+    │
+    ▼
+┌─────────────────┐
+│  Input Validation│
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Query Expansion │ ─── Synonyms, stemming
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────────────────────────────┐
+│            Hybrid Search                 │
+│  ┌─────────────┐    ┌─────────────┐     │
+│  │  Semantic   │    │   Lexical   │     │
+│  │  (70%)      │    │   (30%)     │     │
+│  └──────┬──────┘    └──────┬──────┘     │
+│         └────────┬─────────┘            │
+└──────────────────┼──────────────────────┘
+                   │
+                   ▼
+         ┌─────────────────┐
+         │ Confidence Scoring│
+         └────────┬────────┘
+                  │
+                  ▼
+         ┌─────────────────┐
+         │ Cross-Ref Check  │
+         └────────┬────────┘
+                  │
+                  ▼
+            Results
+```
+
+### Confidence Scoring
+
+```
+overall = (
+    0.40 × semantic_score +     # Embedding similarity
+    0.20 × lexical_score +      # Term overlap
+    0.15 × index_term_match +   # Official index hit
+    0.15 × specificity_bonus +  # 6-digit preferred
+    0.10 × cross_ref_factor     # Classification guidance
+)
+```
+
+### Database Schema
+
+```sql
+-- NAICS codes (2,125 total across all levels)
+naics_nodes (
+    node_code VARCHAR PRIMARY KEY,
+    level VARCHAR,              -- sector, subsector, etc.
+    title VARCHAR,
+    description TEXT,
+    sector_code, subsector_code, industry_group_code, naics_industry_code,
+    raw_embedding_text TEXT
+)
+
+-- Vector embeddings (384 dimensions)
+naics_embeddings (node_code, embedding FLOAT[384], embedding_text)
+
+-- Official index terms (20,398 entries)
+naics_index_terms (term_id, naics_code, index_term, term_normalized)
+
+-- Cross-references for classification guidance
+naics_cross_references (
+    ref_id, source_code, reference_type,
+    reference_text, target_code, excluded_activity
+)
+```
+
+## Performance
+
+| Metric | Target | Notes |
+|--------|--------|-------|
+| Search latency (cold) | < 200ms | First search |
+| Search latency (warm) | < 50ms | Cached |
+| Batch (100 items) | < 10s | Mixed complexity |
+| Server startup | < 30s | Including model load |
+| Memory usage | < 1GB | Steady state |
+
+## Data Sources
+
+| File | Content |
+|------|---------|
+| `2-6 digit_2022_Codes.xlsx` | All NAICS codes and titles |
+| `2022_NAICS_Descriptions.xlsx` | Full code descriptions |
+| `2022_NAICS_Index_File.xlsx` | 20,398 official index terms |
+| `2022_NAICS_Cross_References.xlsx` | Classification guidance |
 
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE) for details.
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

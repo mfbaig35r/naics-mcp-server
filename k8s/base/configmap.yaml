@@ -1,0 +1,38 @@
+# ConfigMap for NAICS MCP Server configuration
+# Non-sensitive configuration values
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: naics-mcp-config
+  namespace: naics-mcp
+  labels:
+    app.kubernetes.io/name: naics-mcp-server
+    app.kubernetes.io/component: config
+data:
+  # Database configuration
+  NAICS_DATABASE_PATH: "/app/data/naics.duckdb"
+
+  # Logging configuration
+  NAICS_LOG_LEVEL: "INFO"
+  NAICS_LOG_FORMAT: "json"
+
+  # HTTP server for health/metrics
+  NAICS_HTTP_ENABLED: "true"
+  NAICS_HTTP_HOST: "0.0.0.0"
+  NAICS_HTTP_PORT: "9090"
+
+  # Embedding model
+  NAICS_EMBEDDING_MODEL: "all-MiniLM-L6-v2"
+
+  # Search configuration
+  NAICS_HYBRID_WEIGHT_SEMANTIC: "0.7"
+  NAICS_HYBRID_WEIGHT_LEXICAL: "0.3"
+  NAICS_MIN_CONFIDENCE: "0.3"
+  NAICS_MAX_CANDIDATES: "500"
+
+  # Rate limiting (disabled by default in k8s - use ingress rate limiting)
+  NAICS_ENABLE_RATE_LIMITING: "false"
+
+  # Graceful shutdown
+  NAICS_SHUTDOWN_TIMEOUT_SECONDS: "30"
+  NAICS_GRACE_PERIOD_SECONDS: "5"

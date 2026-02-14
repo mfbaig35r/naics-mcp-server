@@ -1,0 +1,45 @@
+# Service for NAICS MCP Server
+# Provides stable network endpoint for the server
+apiVersion: v1
+kind: Service
+metadata:
+  name: naics-mcp-server
+  namespace: naics-mcp
+  labels:
+    app.kubernetes.io/name: naics-mcp-server
+    app.kubernetes.io/component: service
+  annotations:
+    # Prometheus Operator service discovery
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: naics-mcp-server
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+      protocol: TCP
+---
+# Headless service for direct pod access (optional)
+# Useful for debugging or direct pod connections
+apiVersion: v1
+kind: Service
+metadata:
+  name: naics-mcp-server-headless
+  namespace: naics-mcp
+  labels:
+    app.kubernetes.io/name: naics-mcp-server
+    app.kubernetes.io/component: service
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: naics-mcp-server
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+      protocol: TCP

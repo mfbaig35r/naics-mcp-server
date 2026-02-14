@@ -1,0 +1,9 @@
+# Namespace for NAICS MCP Server
+# Provides isolation and resource management
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: naics-mcp
+  labels:
+    app.kubernetes.io/name: naics-mcp-server
+    app.kubernetes.io/component: namespace

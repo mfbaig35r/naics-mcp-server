@@ -1,0 +1,38 @@
+# PersistentVolumeClaims for NAICS MCP Server
+# Provides persistent storage for database and model cache
+---
+# Database storage - stores DuckDB database file
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: naics-mcp-data
+  namespace: naics-mcp
+  labels:
+    app.kubernetes.io/name: naics-mcp-server
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # Uncomment to use a specific storage class
+  # storageClassName: standard
+---
+# Model cache storage - stores sentence-transformers models
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: naics-mcp-cache
+  namespace: naics-mcp
+  labels:
+    app.kubernetes.io/name: naics-mcp-server
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  # Uncomment to use a specific storage class
+  # storageClassName: standard

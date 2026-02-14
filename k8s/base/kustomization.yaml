@@ -1,0 +1,35 @@
+# Kustomization for NAICS MCP Server
+# Deploy with: kubectl apply -k k8s/base/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: naics-mcp
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: naics-mcp-server
+  app.kubernetes.io/version: "1.0.0"
+  app.kubernetes.io/managed-by: kustomize
+
+# Resources to include (order matters for dependencies)
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  # Uncomment if using Prometheus Operator
+  # - servicemonitor.yaml
+
+# Image configuration - override in overlays
+images:
+  - name: naics-mcp-server
+    newTag: latest
+
+# ConfigMap generator (alternative to static configmap.yaml)
+# Uncomment to use generator instead of static file
+# configMapGenerator:
+#   - name: naics-mcp-config
+#     literals:
+#       - NAICS_DATABASE_PATH=/app/data/naics.duckdb
+#       - NAICS_LOG_LEVEL=INFO

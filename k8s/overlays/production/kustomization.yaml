@@ -1,0 +1,79 @@
+# Production overlay for NAICS MCP Server
+# Deploy with: kubectl apply -k k8s/overlays/production/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference the base configuration
+resources:
+  - ../../base
+  # Enable Prometheus monitoring in production
+  - ../../base/servicemonitor.yaml
+
+# Production namespace suffix (optional)
+# nameSuffix: -prod
+
+# Production-specific labels
+commonLabels:
+  environment: production
+
+# Production image tag
+images:
+  - name: naics-mcp-server
+    newName: your-registry.io/naics-mcp-server
+    newTag: v1.0.0
+
+# Production resource patches
+patches:
+  # Increase replicas for production
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: naics-mcp-server
+      spec:
+        replicas: 2
+  # Increase resources for production
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: naics-mcp-server
+      spec:
+        template:
+          spec:
+            containers:
+              - name: naics-mcp-server
+                resources:
+                  requests:
+                    memory: "2Gi"
+                    cpu: "1000m"
+                  limits:
+                    memory: "8Gi"
+                    cpu: "4000m"
+  # Production storage sizes
+  - patch: |-
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: naics-mcp-data
+      spec:
+        resources:
+          requests:
+            storage: 5Gi
+  - patch: |-
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: naics-mcp-cache
+      spec:
+        resources:
+          requests:
+            storage: 10Gi
+
+# Production ConfigMap overrides
+configMapGenerator:
+  - name: naics-mcp-config
+    behavior: merge
+    literals:
+      - NAICS_LOG_LEVEL=WARNING
+      - NAICS_LOG_FORMAT=json

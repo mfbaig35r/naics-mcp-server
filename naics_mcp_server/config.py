@@ -466,9 +466,7 @@ class HTTPServerConfig(BaseSettings):
 
     # Server settings
     http_host: str = Field(default="0.0.0.0", description="HTTP server bind address")
-    http_port: int = Field(
-        default=9090, ge=1024, le=65535, description="HTTP server port"
-    )
+    http_port: int = Field(default=9090, ge=1024, le=65535, description="HTTP server port")
 
     # Endpoint paths
     health_path: str = Field(default="/health", description="Liveness probe path")

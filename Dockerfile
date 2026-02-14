@@ -34,7 +34,7 @@ FROM python:3.12-slim AS runtime
 LABEL org.opencontainers.image.title="NAICS MCP Server"
 LABEL org.opencontainers.image.description="Intelligent industry classification service for NAICS 2022"
 LABEL org.opencontainers.image.version="0.1.0"
-LABEL org.opencontainers.image.source="https://github.com/your-org/naics-mcp-server"
+LABEL org.opencontainers.image.source="https://github.com/mfbaig35r/naics-mcp-server"
 
 # Create non-root user for security
 RUN groupadd --gid 1000 naics \
@@ -63,16 +63,23 @@ ENV PYTHONUNBUFFERED=1 \
     NAICS_DATABASE_PATH=/app/data/naics.duckdb \
     NAICS_LOG_LEVEL=INFO \
     NAICS_LOG_FORMAT=json \
+    # HTTP server for health/metrics
+    NAICS_HTTP_ENABLED=true \
+    NAICS_HTTP_HOST=0.0.0.0 \
+    NAICS_HTTP_PORT=9090 \
     # Model cache directory
     HF_HOME=/app/cache/huggingface \
     SENTENCE_TRANSFORMERS_HOME=/app/cache/sentence-transformers
 
+# Expose HTTP port for health checks and metrics
+EXPOSE 9090
+
 # Switch to non-root user
 USER naics
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "from naics_mcp_server.core.health import liveness_check; import asyncio; print(asyncio.run(liveness_check()))" || exit 1
+# Health check using HTTP endpoint (faster and cleaner than Python)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:9090/health || exit 1
 
 # Default command - run the MCP server
 ENTRYPOINT ["naics-mcp-server"]

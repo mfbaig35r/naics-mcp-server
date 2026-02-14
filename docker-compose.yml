@@ -5,6 +5,17 @@
 #   docker compose up -d           # Start in background
 #   docker compose --profile dev up # Start with dev tools
 #   docker compose down            # Stop and remove containers
+#
+# HTTP Endpoints (port 9090):
+#   /health  - Liveness probe (Kubernetes livenessProbe)
+#   /ready   - Readiness probe (Kubernetes readinessProbe)
+#   /status  - Detailed server status with component health
+#   /metrics - Prometheus metrics endpoint
+#
+# Prometheus scrape config:
+#   - job_name: 'naics-mcp-server'
+#     static_configs:
+#       - targets: ['naics-server:9090']
 
 services:
   # ==========================================================================
@@ -17,6 +28,10 @@ services:
       target: runtime
     image: naics-mcp-server:latest
     container_name: naics-mcp-server
+
+    # Expose HTTP port for health checks and Prometheus metrics
+    ports:
+      - "${NAICS_HTTP_PORT:-9090}:9090"
 
     # Volume mounts
     volumes:
@@ -34,12 +49,16 @@ services:
       - NAICS_LOG_FORMAT=${NAICS_LOG_FORMAT:-json}
       - NAICS_EMBEDDING_MODEL=${NAICS_EMBEDDING_MODEL:-all-MiniLM-L6-v2}
       - NAICS_DEBUG=${NAICS_DEBUG:-false}
+      # HTTP server for health/metrics
+      - NAICS_HTTP_ENABLED=true
+      - NAICS_HTTP_HOST=0.0.0.0
+      - NAICS_HTTP_PORT=9090
 
-    # Health check
+    # Health check using HTTP endpoint
     healthcheck:
-      test: ["CMD", "python", "-c", "from naics_mcp_server.core.health import liveness_check; import asyncio; asyncio.run(liveness_check())"]
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 120s  # Allow time for model download on first run
 
@@ -67,6 +86,10 @@ services:
     profiles:
       - dev
 
+    # Expose HTTP port for health checks and metrics
+    ports:
+      - "9091:9090"  # Use 9091 to avoid conflict with production
+
     volumes:
       # Mount source code for hot reload
       - ./naics_mcp_server:/app/naics_mcp_server:ro
@@ -80,6 +103,18 @@ services:
       - NAICS_LOG_LEVEL=DEBUG
       - NAICS_LOG_FORMAT=text
       - NAICS_DEBUG=true
+      # HTTP server for health/metrics
+      - NAICS_HTTP_ENABLED=true
+      - NAICS_HTTP_HOST=0.0.0.0
+      - NAICS_HTTP_PORT=9090
+
+    # Health check using HTTP endpoint
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
     # Override to run with debug flag
     command: ["--debug"]

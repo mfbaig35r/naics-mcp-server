@@ -185,6 +185,26 @@ docker build -t naics-mcp-server:dev --target development .
 | `naics-mcp-cache` | Model cache (sentence-transformers) |
 | `naics-mcp-logs` | Application logs |
 
+## Kubernetes
+
+Deploy to Kubernetes using Kustomize:
+
+```bash
+# Deploy base configuration
+kubectl apply -k k8s/base/
+
+# Deploy production overlay (scaled resources)
+kubectl apply -k k8s/overlays/production/
+```
+
+The deployment includes:
+- Liveness, readiness, and startup probes
+- Persistent storage for database and model cache
+- ConfigMap-based configuration
+- ServiceMonitor for Prometheus Operator
+
+See [k8s/README.md](k8s/README.md) for complete Kubernetes deployment documentation.
+
 ## MCP Tools
 
 ### Search Tools
@@ -263,42 +283,39 @@ naics-mcp embeddings --rebuild  # Force rebuild
 
 ## Health Checks
 
-The server provides health check endpoints suitable for Kubernetes probes.
+The server provides both HTTP endpoints and MCP tools for health monitoring.
 
-### Liveness Check
+### HTTP Endpoints (Port 9090)
 
-```python
-# MCP tool: ping
-# Returns immediately if server process is alive
-{"status": "alive", "timestamp": "2024-01-15T10:30:00Z"}
+| Endpoint | Purpose | Use For |
+|----------|---------|---------|
+| `GET /health` | Liveness probe | Kubernetes livenessProbe |
+| `GET /ready` | Readiness probe | Kubernetes readinessProbe |
+| `GET /status` | Detailed status | Monitoring dashboards |
+| `GET /metrics` | Prometheus metrics | Prometheus scraping |
+
+```bash
+# Check if server is alive
+curl http://localhost:9090/health
+# {"status": "alive", "timestamp": "2024-01-15T10:30:00Z"}
+
+# Check if ready for traffic
+curl http://localhost:9090/ready
+# {"status": "ready", "uptime_seconds": 120.5, "timestamp": "..."}
+
+# Get Prometheus metrics
+curl http://localhost:9090/metrics
 ```
 
-### Readiness Check
+See [docs/HTTP_ENDPOINTS.md](docs/HTTP_ENDPOINTS.md) for complete HTTP API documentation.
 
-```python
-# MCP tool: check_readiness
-# Returns ready when database and embeddings are loaded
-{"status": "ready", "timestamp": "2024-01-15T10:30:00Z", "uptime_seconds": 120.5}
-```
+### MCP Tools
 
-### Detailed Health
-
-```python
-# MCP tool: get_server_health
-# Returns detailed component status
-{
-  "status": "healthy",
-  "version": "0.1.0",
-  "uptime_seconds": 3600,
-  "components": {
-    "database": {"status": "ready", "total_codes": 2125},
-    "embedder": {"status": "ready", "model": "all-MiniLM-L6-v2"},
-    "search_engine": {"status": "ready"},
-    "embeddings": {"status": "ready", "coverage_percent": 100},
-    "cross_references": {"status": "ready", "total": 4500}
-  }
-}
-```
+| Tool | Purpose |
+|------|---------|
+| `ping` | Simple liveness check |
+| `check_readiness` | Readiness status |
+| `get_server_health` | Detailed component health |
 
 ### Health Status Values
 
@@ -460,6 +477,16 @@ naics_cross_references (
 | `2022_NAICS_Descriptions.xlsx` | Full code descriptions |
 | `2022_NAICS_Index_File.xlsx` | 20,398 official index terms |
 | `2022_NAICS_Cross_References.xlsx` | Classification guidance |
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [API Reference](docs/API_REFERENCE.md) | Complete MCP tools reference |
+| [HTTP Endpoints](docs/HTTP_ENDPOINTS.md) | Health check and metrics API |
+| [Kubernetes Deployment](k8s/README.md) | Kubernetes deployment guide |
+| [Changelog](CHANGELOG.md) | Version history |
+| [Production Requirements](docs/PRODUCTION_REQUIREMENTS.md) | Production readiness checklist |
 
 ## License
 

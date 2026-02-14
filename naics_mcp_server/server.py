@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from .config import (
     SearchConfig,
     ServerConfig,
+    get_http_server_config,
     get_metrics_config,
     get_rate_limit_config,
     get_shutdown_config,
@@ -40,6 +41,7 @@ from .core.validation import (
     validate_search_query,
     validate_strategy,
 )
+from .http_server import HTTPServer, HTTPServerConfig
 from .models.search_models import SearchStrategy
 from .observability.audit import SearchAuditLog, SearchEvent
 from .observability.logging import (
@@ -89,6 +91,7 @@ class AppContext:
         health_checker: HealthChecker,
         rate_limiter: RateLimiter | None = None,
         shutdown_manager: ShutdownManager | None = None,
+        http_server: HTTPServer | None = None,
     ):
         self.database = database
         self.embedder = embedder
@@ -99,6 +102,7 @@ class AppContext:
         self.health_checker = health_checker
         self.rate_limiter = rate_limiter
         self.shutdown_manager = shutdown_manager
+        self.http_server = http_server
 
 
 # Request/Response models
@@ -267,7 +271,7 @@ async def lifespan(server: FastMCP):
             },
         )
 
-    # Create application context
+    # Create application context (http_server will be added later)
     app_context = AppContext(
         database,
         embedder,
@@ -278,6 +282,7 @@ async def lifespan(server: FastMCP):
         health_checker,
         rate_limiter,
         shutdown_manager,
+        http_server=None,  # Will be set after HTTP server initialization
     )
 
     # Register shutdown hooks (in order of priority - lower = earlier)
@@ -330,9 +335,57 @@ async def lifespan(server: FastMCP):
         update_health_status("healthy", uptime_seconds=0)
         logger.info("Metrics initialized", data={"port": metrics_config.metrics_port})
 
+    # Initialize HTTP server for health checks and metrics
+    http_server_config = get_http_server_config()
+    http_server = None
+
+    if http_server_config.http_enabled:
+        http_config = HTTPServerConfig(
+            enabled=http_server_config.http_enabled,
+            host=http_server_config.http_host,
+            port=http_server_config.http_port,
+            health_path=http_server_config.health_path,
+            ready_path=http_server_config.ready_path,
+            status_path=http_server_config.status_path,
+            metrics_path=http_server_config.metrics_path,
+        )
+        http_server = HTTPServer(
+            config=http_config,
+            health_checker=health_checker,
+            shutdown_manager=shutdown_manager,
+            server_version=server_config.version,
+        )
+
+        # Register HTTP server shutdown hook (high priority - stop early)
+        shutdown_manager.register_hook(
+            "http_server",
+            http_server.stop,
+            priority=5,  # Stop HTTP server first
+            timeout_seconds=5.0,
+        )
+        logger.info(
+            "HTTP server configured",
+            data={
+                "port": http_server_config.http_port,
+                "endpoints": [
+                    http_server_config.health_path,
+                    http_server_config.ready_path,
+                    http_server_config.status_path,
+                    http_server_config.metrics_path,
+                ],
+            },
+        )
+
+    # Update app context with HTTP server
+    app_context.http_server = http_server
+
     # Use shutdown manager's lifespan for signal handling
     async with shutdown_manager.lifespan():
         try:
+            # Start HTTP server if enabled
+            if http_server:
+                await http_server.start()
+
             yield app_context
         finally:
             log_server_shutdown()

@@ -442,6 +442,53 @@ class ShutdownConfig(BaseSettings):
         }
 
 
+class HTTPServerConfig(BaseSettings):
+    """
+    Configuration for HTTP health/metrics server.
+
+    The HTTP server runs alongside the MCP server on a separate port,
+    providing endpoints for health checks, readiness probes, and metrics.
+
+    Environment variables use the NAICS_ prefix.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="NAICS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # Enable/disable HTTP server
+    http_enabled: bool = Field(
+        default=True, description="Enable HTTP server for health/metrics endpoints"
+    )
+
+    # Server settings
+    http_host: str = Field(default="0.0.0.0", description="HTTP server bind address")
+    http_port: int = Field(
+        default=9090, ge=1024, le=65535, description="HTTP server port"
+    )
+
+    # Endpoint paths
+    health_path: str = Field(default="/health", description="Liveness probe path")
+    ready_path: str = Field(default="/ready", description="Readiness probe path")
+    status_path: str = Field(default="/status", description="Detailed status path")
+    metrics_path: str = Field(default="/metrics", description="Prometheus metrics path")
+
+    def to_dict(self) -> dict:
+        """Convert config to dictionary for logging/debugging."""
+        return {
+            "http_enabled": self.http_enabled,
+            "http_host": self.http_host,
+            "http_port": self.http_port,
+            "health_path": self.health_path,
+            "ready_path": self.ready_path,
+            "status_path": self.status_path,
+            "metrics_path": self.metrics_path,
+        }
+
+
 class ServerConfig(BaseSettings):
     """
     Configuration for the MCP server itself.
@@ -511,6 +558,7 @@ class AppConfig(BaseModel):
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     shutdown: ShutdownConfig = Field(default_factory=ShutdownConfig)
+    http_server: HTTPServerConfig = Field(default_factory=HTTPServerConfig)
 
     def validate_startup(self) -> list[str]:
         """
@@ -559,6 +607,7 @@ class AppConfig(BaseModel):
             "rate_limit": self.rate_limit.to_dict(),
             "logging": self.logging.to_dict(),
             "shutdown": self.shutdown.to_dict(),
+            "http_server": self.http_server.to_dict(),
         }
 
 
@@ -628,6 +677,11 @@ def get_logging_config() -> LoggingConfig:
 def get_shutdown_config() -> ShutdownConfig:
     """Get shutdown configuration (convenience function)."""
     return get_config().shutdown
+
+
+def get_http_server_config() -> HTTPServerConfig:
+    """Get HTTP server configuration (convenience function)."""
+    return get_config().http_server
 
 
 # Backwards compatibility - these are deprecated but maintained for existing code

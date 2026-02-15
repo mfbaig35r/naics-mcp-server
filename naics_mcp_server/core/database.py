@@ -97,6 +97,13 @@ CREATE TABLE IF NOT EXISTS classification_workbook (
     confidence_score FLOAT
 );
 
+-- Pre-computed semantic relationships (from FAISS similarity)
+CREATE TABLE IF NOT EXISTS naics_relationships (
+    node_code VARCHAR PRIMARY KEY,
+    json_data JSON,                      -- Full relationship document
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_naics_level ON naics_nodes (level);
 CREATE INDEX IF NOT EXISTS idx_naics_sector ON naics_nodes (sector_code);
@@ -107,6 +114,8 @@ CREATE INDEX IF NOT EXISTS idx_crossref_source ON naics_cross_references (source
 CREATE INDEX IF NOT EXISTS idx_crossref_target ON naics_cross_references (target_code);
 CREATE INDEX IF NOT EXISTS idx_workbook_session ON classification_workbook (session_id);
 CREATE INDEX IF NOT EXISTS idx_workbook_form_type ON classification_workbook (form_type);
+-- Note: Index on naics_relationships sector is created by the relationship
+-- computation notebook when it populates the data
 """
 
 
@@ -214,6 +223,25 @@ class NAICSDatabase:
                 )
         except Exception as e:
             logger.debug(f"Migration note: {e}")
+
+        try:
+            # Migration: Add naics_relationships table if missing
+            tables = self.connection.execute("SHOW TABLES").fetchall()
+            table_names = [t[0] for t in tables]
+
+            if "naics_relationships" not in table_names:
+                logger.info("Migrating: adding naics_relationships table")
+                self.connection.execute("""
+                    CREATE TABLE IF NOT EXISTS naics_relationships (
+                        node_code VARCHAR PRIMARY KEY,
+                        json_data JSON,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                # Note: Index on json_extract_string is created by the notebook
+                # when it populates the table, as it requires data to exist
+        except Exception as e:
+            logger.debug(f"Migration note (relationships): {e}")
 
     def disconnect(self) -> None:
         """Close database connection cleanly."""

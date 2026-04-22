@@ -7,7 +7,7 @@ Like a filing cabinet with different forms for different types of work.
 Adapted for NAICS classification with industry-specific form types.
 """
 
-import hashlib
+import secrets
 import json
 import logging
 from dataclasses import dataclass, field
@@ -246,14 +246,11 @@ class ClassificationWorkbook:
 
     def _generate_session_id(self) -> str:
         """Generate a unique session ID."""
-        timestamp = datetime.now().isoformat()
-        return hashlib.md5(timestamp.encode()).hexdigest()[:12]
+        return secrets.token_hex(6)
 
     def _generate_entry_id(self, label: str) -> str:
         """Generate a unique entry ID."""
-        timestamp = datetime.now().isoformat()
-        content = f"{label}:{timestamp}:{self.current_session_id}"
-        return hashlib.md5(content.encode()).hexdigest()[:16]
+        return secrets.token_hex(8)
 
     async def create_entry(
         self,

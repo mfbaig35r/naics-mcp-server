@@ -53,9 +53,9 @@ site/
 notebooks/
 *.ipynb
 
-# Project specific - exclude raw data and existing database
+# Project specific - exclude raw data (keep database for baked-in image)
 raw-data/
-data/*.duckdb
+# data/*.duckdb  # Included — baked into Docker image for self-contained deployment
 
 # Logs
 logs/

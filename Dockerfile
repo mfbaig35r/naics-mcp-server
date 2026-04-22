@@ -22,8 +22,8 @@ RUN pip install --no-cache-dir --upgrade pip wheel
 COPY pyproject.toml README.md ./
 COPY naics_mcp_server/ ./naics_mcp_server/
 
-# Build wheel
-RUN pip wheel --no-cache-dir --wheel-dir /wheels .
+# Build app wheel only (no dependencies — torch + deps installed separately in runtime)
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels .
 
 # ============================================================================
 # Stage 2: Runtime - Minimal production image
@@ -35,6 +35,7 @@ LABEL org.opencontainers.image.title="NAICS MCP Server"
 LABEL org.opencontainers.image.description="Intelligent industry classification service for NAICS 2022"
 LABEL org.opencontainers.image.version="0.1.0"
 LABEL org.opencontainers.image.source="https://github.com/mfbaig35r/naics-mcp-server"
+LABEL io.modelcontextprotocol.server.name="io.github.mfbaig35r/naics-mcp-server"
 
 # Create non-root user for security
 RUN groupadd --gid 1000 naics \
@@ -47,7 +48,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy wheels from builder and install
+# Install CPU-only PyTorch first (avoids pulling ~1.3GB CUDA variant)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Copy app wheel from builder and install with all remaining deps
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir /wheels/*.whl \
     && rm -rf /wheels
@@ -55,6 +59,15 @@ RUN pip install --no-cache-dir /wheels/*.whl \
 # Create directories for data and cache
 RUN mkdir -p /app/data /app/cache /app/logs \
     && chown -R naics:naics /app
+
+# Bake in the pre-built DuckDB database (NAICS codes + embeddings)
+COPY --chown=naics:naics data/naics.duckdb /app/data/naics.duckdb
+
+# Pre-download the sentence-transformers model so there's no runtime fetch
+ENV SENTENCE_TRANSFORMERS_HOME=/app/cache/sentence-transformers \
+    HF_HOME=/app/cache/huggingface
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
+    && chown -R naics:naics /app/cache
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -66,10 +79,7 @@ ENV PYTHONUNBUFFERED=1 \
     # HTTP server for health/metrics
     NAICS_HTTP_ENABLED=true \
     NAICS_HTTP_HOST=0.0.0.0 \
-    NAICS_HTTP_PORT=9090 \
-    # Model cache directory
-    HF_HOME=/app/cache/huggingface \
-    SENTENCE_TRANSFORMERS_HOME=/app/cache/sentence-transformers
+    NAICS_HTTP_PORT=9090
 
 # Expose HTTP port for health checks and metrics
 EXPOSE 9090

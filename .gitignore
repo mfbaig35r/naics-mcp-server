@@ -41,3 +41,4 @@ raw-data/
 
 # Jupyter/marimo
 .ipynb_checkpoints/
+.coverage

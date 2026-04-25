@@ -11,6 +11,7 @@ NAICS-specific features:
 - NAICS-specific confidence scoring
 """
 
+import asyncio
 import hashlib
 import logging
 import time
@@ -192,52 +193,55 @@ class SearchCache:
         self.cache: OrderedDict[str, tuple[SearchResults, float]] = OrderedDict()
         self.hits = 0
         self.misses = 0
+        self._lock = asyncio.Lock()
 
     def _get_cache_key(self, query: str, strategy: str, limit: int, min_confidence: float) -> str:
         """Generate a unique cache key for the search parameters."""
         key_str = f"{query}:{strategy}:{limit}:{min_confidence}"
         return hashlib.md5(key_str.encode()).hexdigest()
 
-    def get(
+    async def get(
         self, query: str, strategy: str, limit: int, min_confidence: float
     ) -> SearchResults | None:
         """Retrieve cached results if available and not expired."""
         key = self._get_cache_key(query, strategy, limit, min_confidence)
 
-        if key in self.cache:
-            result, timestamp = self.cache[key]
-            if time.time() - timestamp < self.ttl:
-                self.hits += 1
-                record_cache_hit("search")
-                # Move to end (most recently used) - O(1) operation
-                self.cache.move_to_end(key)
-                logger.debug(f"Cache hit for query: {query[:50]}...")
-                return result
-            else:
-                # Expired - remove it
-                del self.cache[key]
+        async with self._lock:
+            if key in self.cache:
+                result, timestamp = self.cache[key]
+                if time.time() - timestamp < self.ttl:
+                    self.hits += 1
+                    record_cache_hit("search")
+                    # Move to end (most recently used) - O(1) operation
+                    self.cache.move_to_end(key)
+                    logger.debug(f"Cache hit for query: {query[:50]}...")
+                    return result
+                else:
+                    # Expired - remove it
+                    del self.cache[key]
 
-        self.misses += 1
-        record_cache_miss("search")
-        return None
+            self.misses += 1
+            record_cache_miss("search")
+            return None
 
-    def put(
+    async def put(
         self, query: str, strategy: str, limit: int, min_confidence: float, results: SearchResults
     ) -> None:
         """Store search results in cache with LRU eviction."""
         key = self._get_cache_key(query, strategy, limit, min_confidence)
 
-        # If key exists, update and move to end
-        if key in self.cache:
+        async with self._lock:
+            # If key exists, update and move to end
+            if key in self.cache:
+                self.cache[key] = (results, time.time())
+                self.cache.move_to_end(key)
+                return
+
+            # Evict oldest (first item) if at capacity - O(1) operation
+            while len(self.cache) >= self.maxsize:
+                self.cache.popitem(last=False)
+
             self.cache[key] = (results, time.time())
-            self.cache.move_to_end(key)
-            return
-
-        # Evict oldest (first item) if at capacity - O(1) operation
-        while len(self.cache) >= self.maxsize:
-            self.cache.popitem(last=False)
-
-        self.cache[key] = (results, time.time())
 
     def get_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
@@ -271,7 +275,7 @@ class NAICSSearchEngine:
     """
 
     def __init__(
-        self, database: NAICSDatabase, embedder: TextEmbedder, config: SearchConfig = None
+        self, database: NAICSDatabase, embedder: TextEmbedder, config: SearchConfig | None = None
     ):
         """
         Initialize with explicit dependencies.
@@ -476,7 +480,7 @@ class NAICSSearchEngine:
             min_confidence = self.config.min_confidence
 
         # Check cache first
-        cached_result = self.search_cache.get(query, strategy.value, limit, min_confidence)
+        cached_result = await self.search_cache.get(query, strategy.value, limit, min_confidence)
         if cached_result is not None:
             cached_result.query_metadata.processing_time_ms = int((time.time() - start_time) * 1000)
             return cached_result
@@ -613,7 +617,7 @@ class NAICSSearchEngine:
         results = SearchResults(matches=matches, query_metadata=metadata)
 
         # Cache the results
-        self.search_cache.put(query, strategy.value, limit, min_confidence, results)
+        await self.search_cache.put(query, strategy.value, limit, min_confidence, results)
 
         return results
 
@@ -626,14 +630,14 @@ class NAICSSearchEngine:
         Perform semantic search using embeddings.
         """
         # Check cache first
-        cached = self.embedding_cache.get(query)
+        cached = await self.embedding_cache.get(query)
         if cached is not None:
             query_embedding = cached
         else:
             query_embedding = self.embedder.embed_text(
                 query, normalize=self.config.normalize_embeddings
             )
-            self.embedding_cache.put(query, query_embedding)
+            await self.embedding_cache.put(query, query_embedding)
 
         # Search using DuckDB's vector similarity
         results = self.database.connection.execute(

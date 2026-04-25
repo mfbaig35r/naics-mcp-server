@@ -5,6 +5,7 @@ This module handles the vector representation of NAICS descriptions,
 making semantic search possible.
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -229,8 +230,9 @@ class EmbeddingCache:
         self.max_size = max_size
         self.hits = 0
         self.misses = 0
+        self._lock = asyncio.Lock()
 
-    def get(self, text: str) -> np.ndarray | None:
+    async def get(self, text: str) -> np.ndarray | None:
         """
         Retrieve embedding from cache.
 
@@ -240,16 +242,17 @@ class EmbeddingCache:
         Returns:
             Cached embedding or None
         """
-        if text in self.cache:
-            self.hits += 1
-            # Move to end (most recently used) - O(1) operation
-            self.cache.move_to_end(text)
-            return self.cache[text]
+        async with self._lock:
+            if text in self.cache:
+                self.hits += 1
+                # Move to end (most recently used) - O(1) operation
+                self.cache.move_to_end(text)
+                return self.cache[text]
 
-        self.misses += 1
-        return None
+            self.misses += 1
+            return None
 
-    def put(self, text: str, embedding: np.ndarray) -> None:
+    async def put(self, text: str, embedding: np.ndarray) -> None:
         """
         Store embedding in cache with LRU eviction.
 
@@ -257,17 +260,18 @@ class EmbeddingCache:
             text: Text that was embedded
             embedding: The embedding vector
         """
-        # If key exists, update and move to end
-        if text in self.cache:
+        async with self._lock:
+            # If key exists, update and move to end
+            if text in self.cache:
+                self.cache[text] = embedding
+                self.cache.move_to_end(text)
+                return
+
+            # Evict oldest (first item) if at capacity - O(1) operation
+            while len(self.cache) >= self.max_size:
+                self.cache.popitem(last=False)
+
             self.cache[text] = embedding
-            self.cache.move_to_end(text)
-            return
-
-        # Evict oldest (first item) if at capacity - O(1) operation
-        while len(self.cache) >= self.max_size:
-            self.cache.popitem(last=False)
-
-        self.cache[text] = embedding
 
     def get_stats(self) -> dict[str, Any]:
         """Get cache statistics for monitoring."""

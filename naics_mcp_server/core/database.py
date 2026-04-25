@@ -116,7 +116,52 @@ CREATE INDEX IF NOT EXISTS idx_workbook_session ON classification_workbook (sess
 CREATE INDEX IF NOT EXISTS idx_workbook_form_type ON classification_workbook (form_type);
 -- Note: Index on naics_relationships sector is created by the relationship
 -- computation notebook when it populates the data
+
+-- Schema version tracking
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    description VARCHAR
+);
 """
+
+
+def _migrate_001_excluded_activity(connection) -> None:
+    """Add excluded_activity column to naics_cross_references."""
+    cols = connection.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'naics_cross_references'"
+    ).fetchall()
+    column_names = [c[0] for c in cols]
+
+    if "excluded_activity" not in column_names:
+        logger.info("Migration 1: adding excluded_activity column to naics_cross_references")
+        connection.execute(
+            "ALTER TABLE naics_cross_references ADD COLUMN excluded_activity VARCHAR"
+        )
+
+
+def _migrate_002_relationships_table(connection) -> None:
+    """Add naics_relationships table."""
+    tables = connection.execute("SHOW TABLES").fetchall()
+    table_names = [t[0] for t in tables]
+
+    if "naics_relationships" not in table_names:
+        logger.info("Migration 2: adding naics_relationships table")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS naics_relationships (
+                node_code VARCHAR PRIMARY KEY,
+                json_data JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+
+# Ordered list of migrations. Each tuple: (version, description, function)
+MIGRATIONS = [
+    (1, "Add excluded_activity to cross_references", _migrate_001_excluded_activity),
+    (2, "Add naics_relationships table", _migrate_002_relationships_table),
+]
 
 
 class NAICSDatabase:
@@ -196,52 +241,63 @@ class NAICSDatabase:
             if "naics_nodes" not in table_names:
                 logger.info("Initializing NAICS database schema...")
                 self.connection.execute(CREATE_SCHEMA_SQL)
-                logger.info("Schema initialized successfully")
+                # Mark all migrations as applied (base schema includes everything)
+                current_version = MIGRATIONS[-1][0] if MIGRATIONS else 0
+                self.connection.execute(
+                    "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+                    [current_version, "Initial schema"],
+                )
+                logger.info(f"Schema initialized at version {current_version}")
             else:
                 logger.info("Database schema already exists")
-                # Run migrations for existing databases
                 self._run_migrations()
 
         except Exception as e:
             logger.error(f"Failed to initialize schema: {e}")
             raise
 
-    def _run_migrations(self) -> None:
-        """Run schema migrations for existing databases."""
+    def _get_schema_version(self) -> int:
+        """Get current schema version, creating the version table if needed."""
         try:
-            # Migration: Add excluded_activity column to naics_cross_references if missing
-            cols = self.connection.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'naics_cross_references'"
-            ).fetchall()
-            column_names = [c[0] for c in cols]
-
-            if "excluded_activity" not in column_names:
-                logger.info("Migrating naics_cross_references: adding excluded_activity column")
-                self.connection.execute(
-                    "ALTER TABLE naics_cross_references ADD COLUMN excluded_activity VARCHAR"
-                )
-        except Exception as e:
-            logger.debug(f"Migration note: {e}")
-
-        try:
-            # Migration: Add naics_relationships table if missing
             tables = self.connection.execute("SHOW TABLES").fetchall()
-            table_names = [t[0] for t in tables]
-
-            if "naics_relationships" not in table_names:
-                logger.info("Migrating: adding naics_relationships table")
+            if "schema_version" not in [t[0] for t in tables]:
+                # Existing database without version tracking — create the table
                 self.connection.execute("""
-                    CREATE TABLE IF NOT EXISTS naics_relationships (
-                        node_code VARCHAR PRIMARY KEY,
-                        json_data JSON,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    CREATE TABLE IF NOT EXISTS schema_version (
+                        version INTEGER PRIMARY KEY,
+                        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        description VARCHAR
                     )
                 """)
-                # Note: Index on json_extract_string is created by the notebook
-                # when it populates the table, as it requires data to exist
-        except Exception as e:
-            logger.debug(f"Migration note (relationships): {e}")
+                return 0
+
+            result = self.connection.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_version"
+            ).fetchone()
+            return result[0]
+        except Exception:
+            return 0
+
+    def _run_migrations(self) -> None:
+        """Run pending schema migrations in order."""
+        current_version = self._get_schema_version()
+        pending = [(v, desc, fn) for v, desc, fn in MIGRATIONS if v > current_version]
+
+        if not pending:
+            logger.debug(f"Schema at version {current_version}, no migrations needed")
+            return
+
+        for version, description, migrate_fn in pending:
+            try:
+                migrate_fn(self.connection)
+                self.connection.execute(
+                    "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+                    [version, description],
+                )
+                logger.info(f"Applied migration {version}: {description}")
+            except Exception as e:
+                logger.error(f"Migration {version} failed: {e}")
+                raise
 
     def disconnect(self) -> None:
         """Close database connection cleanly."""

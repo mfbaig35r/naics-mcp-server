@@ -7,9 +7,9 @@ Like a filing cabinet with different forms for different types of work.
 Adapted for NAICS classification with industry-specific form types.
 """
 
-import secrets
 import json
 import logging
+import secrets
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum

@@ -117,16 +117,25 @@ class NAICSMatch:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
-            "node_code": self.code.node_code,
+            "code": self.code.node_code,
             "title": self.code.title,
             "description": self.code.description,
             "level": self.code.level.value,
             "confidence": self.confidence.overall,
-            "confidence_explanation": self.confidence.to_explanation(),
+            "explanation": self.confidence.to_explanation(),
             "hierarchy": self.hierarchy_path,
             "matched_index_terms": self.matched_index_terms,
             "exclusion_warnings": self.exclusion_warnings,
             "rank": self.rank,
+        }
+
+    def to_summary_dict(self) -> dict[str, Any]:
+        """Compact dict for use in alternative listings."""
+        return {
+            "code": self.code.node_code,
+            "title": self.code.title,
+            "confidence": self.confidence.overall,
+            "matched_index_terms": self.matched_index_terms,
         }
 
 
@@ -217,6 +226,18 @@ class SearchResults:
                 )
         return warnings
 
+    def to_dict(self, guidance: list[str] | None = None) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "query": self.query_metadata.original_query,
+            "results": [m.to_dict() for m in self.matches],
+            "expanded": self.query_metadata.was_expanded,
+            "strategy_used": self.query_metadata.strategy_used,
+            "total_found": len(self.matches),
+            "search_time_ms": self.query_metadata.processing_time_ms,
+            "guidance": guidance or [],
+        }
+
 
 @dataclass
 class ClassificationResult:
@@ -234,13 +255,100 @@ class ClassificationResult:
     confidence_level: str = "medium"  # "high", "medium", "low"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "input": self.input_description,
-            "primary": self.primary_classification.to_dict()
+            "classification": self.primary_classification.to_dict()
             if self.primary_classification
             else None,
-            "alternatives": [m.to_dict() for m in self.alternative_classifications],
-            "reasoning": self.reasoning,
-            "cross_ref_notes": self.cross_ref_notes,
-            "confidence_level": self.confidence_level,
+            "alternatives": [m.to_summary_dict() for m in self.alternative_classifications],
         }
+        if self.primary_classification:
+            # Add confidence breakdown to classification
+            conf = self.primary_classification.confidence
+            result["classification"]["confidence_breakdown"] = {
+                "semantic": conf.semantic,
+                "lexical": conf.lexical,
+                "index_term": conf.index_term,
+                "specificity": conf.specificity,
+                "cross_ref": conf.cross_ref,
+            }
+        if self.reasoning:
+            result["reasoning"] = self.reasoning
+        if self.cross_ref_notes:
+            result["exclusion_warnings"] = self.cross_ref_notes
+        return result
+
+    @staticmethod
+    def build_reasoning(
+        primary: "NAICSMatch",
+        alternatives: list["NAICSMatch"],
+        check_cross_refs: bool = True,
+    ) -> str:
+        """Build detailed reasoning text for a classification."""
+        parts = []
+
+        parts.append(f"**Primary Classification:** {primary.code.node_code} - {primary.code.title}")
+        parts.append(f"**Overall Confidence:** {primary.confidence.overall:.1%}")
+        parts.append("")
+
+        # Key decision factors
+        conf = primary.confidence
+        factors = []
+        if conf.semantic > 0.7:
+            factors.append(f"semantic similarity ({conf.semantic:.0%})")
+        if conf.lexical > 0.5:
+            factors.append(f"exact term matches ({conf.lexical:.0%})")
+        if conf.index_term > 0.5:
+            factors.append(f"official index term match ({conf.index_term:.0%})")
+        if conf.specificity > 0.7:
+            factors.append(f"most specific level ({conf.specificity:.0%})")
+        parts.append(f"**Key Decision Factors:** {', '.join(factors) if factors else 'General context match'}")
+        parts.append("")
+
+        # Index term matches
+        if primary.matched_index_terms:
+            parts.append(f"**Official Index Terms Matched:** {', '.join(primary.matched_index_terms[:5])}")
+        else:
+            parts.append("**Official Index Terms Matched:** None (matched via description)")
+        parts.append("")
+
+        # Why chosen over alternatives
+        if alternatives:
+            parts.append("**Why This Over Alternatives:**")
+            for alt in alternatives[:3]:
+                delta = primary.confidence.overall - alt.confidence.overall
+                reasons = []
+                if primary.confidence.semantic > alt.confidence.semantic + 0.1:
+                    reasons.append("better semantic fit")
+                if primary.confidence.index_term > alt.confidence.index_term:
+                    reasons.append("stronger index term match")
+                if primary.confidence.specificity > alt.confidence.specificity:
+                    reasons.append("more specific code")
+                if not reasons:
+                    reasons.append("higher overall score")
+                parts.append(
+                    f"  - vs {alt.code.node_code} ({alt.code.title}): "
+                    f"+{delta:.0%} confidence ({', '.join(reasons)})"
+                )
+            parts.append("")
+
+        # Cross-reference status
+        if check_cross_refs:
+            if primary.exclusion_warnings:
+                parts.append("**Cross-References Checked:** Yes - WARNINGS FOUND")
+            elif primary.relevant_cross_refs:
+                parts.append(
+                    f"**Cross-References Checked:** Yes - {len(primary.relevant_cross_refs)} references reviewed, no conflicts"
+                )
+            else:
+                parts.append("**Cross-References Checked:** Yes - no applicable exclusions")
+        else:
+            parts.append("**Cross-References Checked:** No (use check_cross_refs=true for full validation)")
+        parts.append("")
+
+        if primary.exclusion_warnings:
+            parts.append("**EXCLUSION WARNINGS:**")
+            for warning in primary.exclusion_warnings:
+                parts.append(f"  - {warning}")
+
+        return "\n".join(parts)

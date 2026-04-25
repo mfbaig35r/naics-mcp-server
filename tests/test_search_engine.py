@@ -4,6 +4,7 @@ Unit tests for NAICSSearchEngine.
 Tests search operations, confidence scoring, caching, and result generation.
 """
 
+import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -163,75 +164,75 @@ class TestSearchCache:
             ),
         )
 
-    def test_cache_put_and_get(self, cache, sample_results):
+    async def test_cache_put_and_get(self, cache, sample_results):
         """Should store and retrieve cached results."""
-        cache.put("dog food", "hybrid", 10, 0.3, sample_results)
+        await cache.put("dog food", "hybrid", 10, 0.3, sample_results)
 
-        cached = cache.get("dog food", "hybrid", 10, 0.3)
+        cached = await cache.get("dog food", "hybrid", 10, 0.3)
 
         assert cached is not None
         assert len(cached.matches) == 1
 
-    def test_cache_miss_different_params(self, cache, sample_results):
+    async def test_cache_miss_different_params(self, cache, sample_results):
         """Different parameters should result in cache miss."""
-        cache.put("dog food", "hybrid", 10, 0.3, sample_results)
+        await cache.put("dog food", "hybrid", 10, 0.3, sample_results)
 
         # Different query
-        assert cache.get("cat food", "hybrid", 10, 0.3) is None
+        assert await cache.get("cat food", "hybrid", 10, 0.3) is None
 
         # Different strategy
-        assert cache.get("dog food", "lexical", 10, 0.3) is None
+        assert await cache.get("dog food", "lexical", 10, 0.3) is None
 
         # Different limit
-        assert cache.get("dog food", "hybrid", 5, 0.3) is None
+        assert await cache.get("dog food", "hybrid", 5, 0.3) is None
 
         # Different min_confidence
-        assert cache.get("dog food", "hybrid", 10, 0.5) is None
+        assert await cache.get("dog food", "hybrid", 10, 0.5) is None
 
-    def test_cache_respects_maxsize(self, sample_results):
+    async def test_cache_respects_maxsize(self, sample_results):
         """Cache should evict oldest entries when maxsize is reached."""
         cache = SearchCache(maxsize=3, ttl_seconds=60)
 
-        cache.put("query1", "hybrid", 10, 0.3, sample_results)
-        cache.put("query2", "hybrid", 10, 0.3, sample_results)
-        cache.put("query3", "hybrid", 10, 0.3, sample_results)
+        await cache.put("query1", "hybrid", 10, 0.3, sample_results)
+        await cache.put("query2", "hybrid", 10, 0.3, sample_results)
+        await cache.put("query3", "hybrid", 10, 0.3, sample_results)
 
         # All three should be cached
-        assert cache.get("query1", "hybrid", 10, 0.3) is not None
-        assert cache.get("query2", "hybrid", 10, 0.3) is not None
-        assert cache.get("query3", "hybrid", 10, 0.3) is not None
+        assert await cache.get("query1", "hybrid", 10, 0.3) is not None
+        assert await cache.get("query2", "hybrid", 10, 0.3) is not None
+        assert await cache.get("query3", "hybrid", 10, 0.3) is not None
 
         # Adding fourth should evict oldest
-        cache.put("query4", "hybrid", 10, 0.3, sample_results)
+        await cache.put("query4", "hybrid", 10, 0.3, sample_results)
 
         # query1 should be evicted (oldest)
-        assert cache.get("query1", "hybrid", 10, 0.3) is None
-        assert cache.get("query4", "hybrid", 10, 0.3) is not None
+        assert await cache.get("query1", "hybrid", 10, 0.3) is None
+        assert await cache.get("query4", "hybrid", 10, 0.3) is not None
 
-    def test_cache_ttl_expiration(self, sample_results):
+    async def test_cache_ttl_expiration(self, sample_results):
         """Cache entries should expire after TTL."""
         cache = SearchCache(maxsize=10, ttl_seconds=1)  # 1 second TTL
 
-        cache.put("query", "hybrid", 10, 0.3, sample_results)
+        await cache.put("query", "hybrid", 10, 0.3, sample_results)
 
         # Should be cached immediately
-        assert cache.get("query", "hybrid", 10, 0.3) is not None
+        assert await cache.get("query", "hybrid", 10, 0.3) is not None
 
         # Wait for TTL expiration
-        time.sleep(1.1)
+        await asyncio.sleep(1.1)
 
         # Should be expired
-        assert cache.get("query", "hybrid", 10, 0.3) is None
+        assert await cache.get("query", "hybrid", 10, 0.3) is None
 
-    def test_cache_stats(self, cache, sample_results):
+    async def test_cache_stats(self, cache, sample_results):
         """Should track hit/miss statistics."""
-        cache.put("query", "hybrid", 10, 0.3, sample_results)
+        await cache.put("query", "hybrid", 10, 0.3, sample_results)
 
         # Miss
-        cache.get("nonexistent", "hybrid", 10, 0.3)
+        await cache.get("nonexistent", "hybrid", 10, 0.3)
 
         # Hit
-        cache.get("query", "hybrid", 10, 0.3)
+        await cache.get("query", "hybrid", 10, 0.3)
 
         stats = cache.get_stats()
 
@@ -241,11 +242,11 @@ class TestSearchCache:
         assert stats["size"] == 1
         assert stats["maxsize"] == 10
 
-    def test_cache_clear(self, cache, sample_results):
+    async def test_cache_clear(self, cache, sample_results):
         """Clear should remove all entries and reset stats."""
-        cache.put("query1", "hybrid", 10, 0.3, sample_results)
-        cache.put("query2", "hybrid", 10, 0.3, sample_results)
-        cache.get("query1", "hybrid", 10, 0.3)  # hit
+        await cache.put("query1", "hybrid", 10, 0.3, sample_results)
+        await cache.put("query2", "hybrid", 10, 0.3, sample_results)
+        await cache.get("query1", "hybrid", 10, 0.3)  # hit
 
         cache.clear()
 

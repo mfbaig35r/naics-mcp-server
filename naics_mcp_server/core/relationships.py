@@ -12,7 +12,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from ..models.relationships import NAICSRelationship, RelationshipStats, SimilarCode
+from ..models.relationships import NAICSRelationship
 
 if TYPE_CHECKING:
     from .database import NAICSDatabase

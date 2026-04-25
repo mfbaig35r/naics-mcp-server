@@ -47,9 +47,7 @@ def register_tools(mcp):
                 for code in hierarchy
             ]
 
-            return HierarchyResponse(
-                naics_code=naics_code, hierarchy=hierarchy_list
-            ).to_dict()
+            return HierarchyResponse(naics_code=naics_code, hierarchy=hierarchy_list).to_dict()
 
         except NAICSException as e:
             logger.error(f"Failed to get hierarchy: {e}")

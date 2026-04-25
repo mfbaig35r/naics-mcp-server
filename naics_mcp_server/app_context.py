@@ -2,7 +2,6 @@
 Application context and shared utilities for NAICS MCP Server tools.
 """
 
-
 from mcp.server.fastmcp import Context
 
 from .core.classification_workbook import ClassificationWorkbook

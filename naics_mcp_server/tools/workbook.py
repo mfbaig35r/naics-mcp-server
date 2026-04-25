@@ -245,7 +245,9 @@ def register_tools(mcp):
             return {"error": f"Failed to retrieve entry: {str(e)}", "success": False}
 
     @mcp.tool()
-    async def get_workbook_template(request: WorkbookTemplateRequest, ctx: Context) -> dict[str, Any]:
+    async def get_workbook_template(
+        request: WorkbookTemplateRequest, ctx: Context
+    ) -> dict[str, Any]:
         """
         Get a template for a specific workbook form type.
 

@@ -101,7 +101,8 @@ def register_tools(mcp):
             validated_confidence = confidence_result.value
         except ValidationError as e:
             logger.warning(
-                "Search validation failed", data={"error": e.message, "field": e.details.get("field")}
+                "Search validation failed",
+                data={"error": e.message, "field": e.details.get("field")},
             )
             return {
                 "query": request.query,

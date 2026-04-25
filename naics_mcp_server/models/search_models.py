@@ -302,12 +302,16 @@ class ClassificationResult:
             factors.append(f"official index term match ({conf.index_term:.0%})")
         if conf.specificity > 0.7:
             factors.append(f"most specific level ({conf.specificity:.0%})")
-        parts.append(f"**Key Decision Factors:** {', '.join(factors) if factors else 'General context match'}")
+        parts.append(
+            f"**Key Decision Factors:** {', '.join(factors) if factors else 'General context match'}"
+        )
         parts.append("")
 
         # Index term matches
         if primary.matched_index_terms:
-            parts.append(f"**Official Index Terms Matched:** {', '.join(primary.matched_index_terms[:5])}")
+            parts.append(
+                f"**Official Index Terms Matched:** {', '.join(primary.matched_index_terms[:5])}"
+            )
         else:
             parts.append("**Official Index Terms Matched:** None (matched via description)")
         parts.append("")
@@ -343,7 +347,9 @@ class ClassificationResult:
             else:
                 parts.append("**Cross-References Checked:** Yes - no applicable exclusions")
         else:
-            parts.append("**Cross-References Checked:** No (use check_cross_refs=true for full validation)")
+            parts.append(
+                "**Cross-References Checked:** No (use check_cross_refs=true for full validation)"
+            )
         parts.append("")
 
         if primary.exclusion_warnings:

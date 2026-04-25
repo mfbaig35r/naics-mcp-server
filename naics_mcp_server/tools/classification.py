@@ -116,7 +116,9 @@ def register_tools(mcp):
             alternatives = results.matches[1:4]
 
             reasoning = (
-                ClassificationResult.build_reasoning(primary, alternatives, request.check_cross_refs)
+                ClassificationResult.build_reasoning(
+                    primary, alternatives, request.check_cross_refs
+                )
                 if request.include_reasoning
                 else None
             )
@@ -175,7 +177,8 @@ def register_tools(mcp):
             validated_descriptions = batch_result.value
         except ValidationError as e:
             logger.warning(
-                "Batch validation failed", data={"error": e.message, "field": e.details.get("field")}
+                "Batch validation failed",
+                data={"error": e.message, "field": e.details.get("field")},
             )
             return {
                 "error": e.message,
@@ -366,9 +369,7 @@ def register_tools(mcp):
                         reason = f"Strong match - rank #1 with {confidence:.0%} confidence"
                     else:
                         status = "valid"
-                        reason = (
-                            f"Best available match (rank #1) but moderate confidence ({confidence:.0%})"
-                        )
+                        reason = f"Best available match (rank #1) but moderate confidence ({confidence:.0%})"
                 elif provided_rank <= 3:
                     status = "questionable"
                     reason = f"Acceptable match (rank #{provided_rank}, {confidence:.0%} confidence) but better alternatives exist"
@@ -431,9 +432,13 @@ def register_tools(mcp):
                     "lexical": provided_match.confidence.lexical,
                     "index_term": provided_match.confidence.index_term,
                     "specificity": provided_match.confidence.specificity,
-                } if provided_match else None,
+                }
+                if provided_match
+                else None,
                 exclusion_warnings=exclusion_warnings,
-                warning=f"Description may match {len(exclusion_warnings)} exclusion(s) for this code" if exclusion_warnings else None,
+                warning=f"Description may match {len(exclusion_warnings)} exclusion(s) for this code"
+                if exclusion_warnings
+                else None,
                 suggested_alternatives=alternatives,
                 best_match=best_match,
             )

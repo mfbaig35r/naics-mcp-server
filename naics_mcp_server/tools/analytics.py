@@ -125,7 +125,10 @@ def register_tools(mcp):
                             "hierarchy": code.get_hierarchy_path(),
                             "index_terms": [t.index_term for t in index_terms[:5]],
                             "exclusions": [
-                                {"activity": cr.excluded_activity, "classified_under": cr.target_code}
+                                {
+                                    "activity": cr.excluded_activity,
+                                    "classified_under": cr.target_code,
+                                }
                                 for cr in cross_refs
                                 if cr.reference_type == "excludes"
                             ][:3],

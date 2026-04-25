@@ -5,7 +5,6 @@ Tests search operations, confidence scoring, caching, and result generation.
 """
 
 import asyncio
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np

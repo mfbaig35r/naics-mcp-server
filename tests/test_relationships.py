@@ -5,8 +5,8 @@ Tests pre-computed semantic similarity relationships between NAICS codes.
 """
 
 import json
+
 import pytest
-from pathlib import Path
 
 from naics_mcp_server.core.database import NAICSDatabase
 from naics_mcp_server.core.relationships import RelationshipService
@@ -15,7 +15,6 @@ from naics_mcp_server.models.relationships import (
     RelationshipStats,
     SimilarCode,
 )
-
 
 # --- Model Tests ---
 
@@ -186,15 +185,11 @@ class TestNAICSRelationship:
         assert len(same) == 1
         assert len(cross) == 1
 
-    def test_get_filtered_alternatives_exclude_cross_sector(
-        self, sample_relationship_data
-    ):
+    def test_get_filtered_alternatives_exclude_cross_sector(self, sample_relationship_data):
         """Test excluding cross-sector alternatives."""
         rel = NAICSRelationship.from_dict(sample_relationship_data)
 
-        same, cross = rel.get_filtered_alternatives(
-            min_similarity=0.70, include_cross_sector=False
-        )
+        same, cross = rel.get_filtered_alternatives(min_similarity=0.70, include_cross_sector=False)
         assert len(same) == 2
         assert len(cross) == 0
 

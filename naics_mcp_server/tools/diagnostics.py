@@ -163,7 +163,12 @@ def register_tools(mcp):
                     "search_workbook",
                     "get_workbook_entry",
                 ],
-                "diagnostics": ["ping", "check_readiness", "get_server_health", "get_workflow_guide"],
+                "diagnostics": [
+                    "ping",
+                    "check_readiness",
+                    "get_server_health",
+                    "get_workflow_guide",
+                ],
             },
             "workbook_linking": {
                 "description": "Use parent_entry_id to create traceable analysis chains",

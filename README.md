@@ -279,7 +279,29 @@ naics-mcp init
 # Generate/rebuild embeddings
 naics-mcp embeddings
 naics-mcp embeddings --rebuild  # Force rebuild
+
+# Batch classify from CSV
+naics-mcp classify-batch suppliers.csv
+naics-mcp classify-batch suppliers.csv --column "supplier_name"
+naics-mcp classify-batch suppliers.csv --top-n 3 --output results.csv
 ```
+
+### Batch Classification
+
+Classify thousands of business descriptions in one command. Reads a CSV, runs each row through the hybrid search engine, and writes results with NAICS code, title, level, and confidence score.
+
+```bash
+naics-mcp classify-batch suppliers.csv --column description --top-n 3 --strategy hybrid
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--column` | `description` | CSV column containing business descriptions |
+| `--output` | `<input>_classified.csv` | Output file path |
+| `--top-n` | `1` | Number of top matches per row |
+| `--strategy` | `hybrid` | Search strategy (`hybrid`, `semantic`, `lexical`) |
+
+Output preserves all original columns and appends classification columns. With `--top-n 3`, columns are suffixed (`naics_code_1`, `naics_code_2`, `naics_code_3`, etc.). Progress is reported every 500 rows with rate and ETA.
 
 ## Health Checks
 
@@ -374,7 +396,7 @@ naics-mcp-server/
 │       ├── logging.py      # Structured logging
 │       └── audit.py        # Audit logging
 ├── tests/
-├── data/                   # Database files (gitignored)
+├── data/                   # Pre-built DuckDB database (included)
 ├── Dockerfile
 ├── docker-compose.yml
 └── pyproject.toml

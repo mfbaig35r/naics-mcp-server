@@ -261,8 +261,10 @@ def cmd_classify_batch(args):
     top_n = args.top_n
 
     # Classify each row
-    output_path = Path(args.output) if args.output else input_path.with_name(
-        f"{input_path.stem}_classified{input_path.suffix}"
+    output_path = (
+        Path(args.output)
+        if args.output
+        else input_path.with_name(f"{input_path.stem}_classified{input_path.suffix}")
     )
 
     # Build output fieldnames: original columns + classification columns
@@ -270,12 +272,14 @@ def cmd_classify_batch(args):
     classification_fields = []
     for i in range(1, top_n + 1):
         suffix = f"_{i}" if top_n > 1 else ""
-        classification_fields.extend([
-            f"naics_code{suffix}",
-            f"naics_title{suffix}",
-            f"naics_level{suffix}",
-            f"confidence{suffix}",
-        ])
+        classification_fields.extend(
+            [
+                f"naics_code{suffix}",
+                f"naics_title{suffix}",
+                f"naics_level{suffix}",
+                f"confidence{suffix}",
+            ]
+        )
     output_fields = original_fields + classification_fields
 
     start_time = time.time()

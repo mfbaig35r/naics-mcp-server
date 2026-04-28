@@ -75,6 +75,10 @@ naics-mcp search "retail grocery store"              # Test search
 naics-mcp search "dog food manufacturing" --limit 5  # Search with options
 naics-mcp hierarchy 445110                           # View code hierarchy
 naics-mcp stats                                      # Database statistics
+naics-mcp classify-batch suppliers.csv               # Batch classify from CSV
+naics-mcp classify-batch in.csv --column name        # Specify description column
+naics-mcp classify-batch in.csv --top-n 3            # Top 3 matches per row
+naics-mcp classify-batch in.csv -o results.csv       # Custom output path
 ```
 
 ---

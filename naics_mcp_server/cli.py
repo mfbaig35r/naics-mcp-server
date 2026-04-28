@@ -206,6 +206,154 @@ def cmd_hierarchy(args):
     db.disconnect()
 
 
+def cmd_classify_batch(args):
+    """Classify business descriptions from a CSV file in batch."""
+    setup_logging(args.debug)
+
+    import csv
+    import time
+
+    from .config import SearchConfig
+    from .core.database import NAICSDatabase
+    from .core.embeddings import TextEmbedder
+    from .core.search_engine import NAICSSearchEngine
+    from .models.search_models import SearchStrategy
+
+    config = SearchConfig.from_env()
+    db_path = Path(args.database) if args.database else config.database_path
+
+    # Read input CSV
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        logger.error(f"Input file not found: {input_path}")
+        sys.exit(1)
+
+    logger.info(f"Reading {input_path}")
+    with open(input_path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        if args.column not in reader.fieldnames:
+            logger.error(
+                f"Column '{args.column}' not found. Available: {', '.join(reader.fieldnames)}"
+            )
+            sys.exit(1)
+        rows = list(reader)
+
+    total = len(rows)
+    logger.info(f"Loaded {total:,} rows, classifying column '{args.column}'")
+
+    # Initialize search engine
+    db = NAICSDatabase(db_path)
+    db.connect()
+
+    cache_dir = Path.home() / ".cache" / "naics-mcp-server" / "models"
+    embedder = TextEmbedder(model_name=config.embedding_model, cache_dir=cache_dir)
+    embedder.load_model()
+
+    search_engine = NAICSSearchEngine(db, embedder, config)
+    asyncio.run(search_engine.initialize_embeddings())
+
+    strategy_map = {
+        "hybrid": SearchStrategy.HYBRID,
+        "semantic": SearchStrategy.SEMANTIC,
+        "lexical": SearchStrategy.LEXICAL,
+    }
+    strategy = strategy_map.get(args.strategy, SearchStrategy.HYBRID)
+    top_n = args.top_n
+
+    # Classify each row
+    output_path = Path(args.output) if args.output else input_path.with_name(
+        f"{input_path.stem}_classified{input_path.suffix}"
+    )
+
+    # Build output fieldnames: original columns + classification columns
+    original_fields = list(rows[0].keys()) if rows else []
+    classification_fields = []
+    for i in range(1, top_n + 1):
+        suffix = f"_{i}" if top_n > 1 else ""
+        classification_fields.extend([
+            f"naics_code{suffix}",
+            f"naics_title{suffix}",
+            f"naics_level{suffix}",
+            f"confidence{suffix}",
+        ])
+    output_fields = original_fields + classification_fields
+
+    start_time = time.time()
+    classified = 0
+    failed = 0
+
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=output_fields)
+        writer.writeheader()
+
+        for i, row in enumerate(rows):
+            description = (row.get(args.column) or "").strip()
+            out_row = dict(row)
+
+            if not description:
+                # Fill classification columns with empty values
+                for field_name in classification_fields:
+                    out_row[field_name] = ""
+                writer.writerow(out_row)
+                failed += 1
+            else:
+                try:
+                    results = asyncio.run(
+                        search_engine.search(
+                            query=description,
+                            strategy=strategy,
+                            limit=top_n,
+                            min_confidence=0.2,
+                        )
+                    )
+
+                    for j in range(top_n):
+                        suffix = f"_{j + 1}" if top_n > 1 else ""
+                        if j < len(results.matches):
+                            match = results.matches[j]
+                            out_row[f"naics_code{suffix}"] = match.code.node_code
+                            out_row[f"naics_title{suffix}"] = match.code.title
+                            out_row[f"naics_level{suffix}"] = match.code.level.value
+                            out_row[f"confidence{suffix}"] = f"{match.confidence.overall:.4f}"
+                        else:
+                            out_row[f"naics_code{suffix}"] = ""
+                            out_row[f"naics_title{suffix}"] = ""
+                            out_row[f"naics_level{suffix}"] = ""
+                            out_row[f"confidence{suffix}"] = ""
+
+                    writer.writerow(out_row)
+                    classified += 1
+
+                except Exception as e:
+                    logger.warning(f"Row {i + 1} failed: {e}")
+                    for field_name in classification_fields:
+                        out_row[field_name] = ""
+                    writer.writerow(out_row)
+                    failed += 1
+
+            # Progress reporting
+            processed = i + 1
+            if processed % 500 == 0 or processed == total:
+                elapsed = time.time() - start_time
+                rate = processed / elapsed if elapsed > 0 else 0
+                remaining = (total - processed) / rate if rate > 0 else 0
+                print(
+                    f"  [{processed:,}/{total:,}] "
+                    f"{processed / total:.0%} complete | "
+                    f"{rate:.0f} rows/sec | "
+                    f"~{remaining:.0f}s remaining",
+                    flush=True,
+                )
+
+    elapsed = time.time() - start_time
+    db.disconnect()
+
+    print(f"\nDone in {elapsed:.1f}s ({total / elapsed:.0f} rows/sec)")
+    print(f"  Classified: {classified:,}")
+    print(f"  Failed/empty: {failed:,}")
+    print(f"  Output: {output_path}")
+
+
 def cmd_metrics_server(args):
     """Run the Prometheus metrics HTTP server."""
     setup_logging(args.debug)
@@ -223,10 +371,13 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  naics-mcp serve                    Run the MCP server
-  naics-mcp search "retail grocery"  Search for NAICS codes
-  naics-mcp hierarchy 445110         Show hierarchy for a code
-  naics-mcp stats                    Show database statistics
+  naics-mcp serve                                  Run the MCP server
+  naics-mcp search "retail grocery"                Search for NAICS codes
+  naics-mcp hierarchy 445110                       Show hierarchy for a code
+  naics-mcp stats                                  Show database statistics
+  naics-mcp classify-batch suppliers.csv           Classify from CSV
+  naics-mcp classify-batch in.csv --column name    Use a different column
+  naics-mcp classify-batch in.csv --top-n 3        Get top 3 matches per row
         """,
     )
 
@@ -276,6 +427,35 @@ Examples:
     hierarchy_parser = subparsers.add_parser("hierarchy", help="Show code hierarchy")
     hierarchy_parser.add_argument("code", type=str, help="NAICS code")
     hierarchy_parser.set_defaults(func=cmd_hierarchy)
+
+    # classify-batch command
+    batch_parser = subparsers.add_parser(
+        "classify-batch", help="Classify business descriptions from a CSV file"
+    )
+    batch_parser.add_argument("input_file", type=str, help="Input CSV file path")
+    batch_parser.add_argument(
+        "--column",
+        type=str,
+        default="description",
+        help="Column containing descriptions (default: description)",
+    )
+    batch_parser.add_argument(
+        "--output", type=str, help="Output CSV path (default: <input>_classified.csv)"
+    )
+    batch_parser.add_argument(
+        "--strategy",
+        type=str,
+        default="hybrid",
+        choices=["hybrid", "semantic", "lexical"],
+        help="Search strategy (default: hybrid)",
+    )
+    batch_parser.add_argument(
+        "--top-n",
+        type=int,
+        default=1,
+        help="Number of top matches per row (default: 1)",
+    )
+    batch_parser.set_defaults(func=cmd_classify_batch)
 
     # metrics-server command
     metrics_parser = subparsers.add_parser(

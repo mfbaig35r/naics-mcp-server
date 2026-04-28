@@ -36,7 +36,7 @@ ENV/
 Thumbs.db
 
 # Project specific
-data/*.duckdb
+data/*.duckdb.wal
 raw-data/
 
 # Jupyter/marimo
